@@ -2,11 +2,6 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
-#include <iostream>
-#include <chrono>
-#include <thread>
-#include <algorithm>
-
 #include <engine/movegen/Tables.hpp>
 #include <engine/movegen/Types.hpp>
 #include <engine/movegen/Position.hpp>
@@ -69,7 +64,7 @@ namespace Engine {
 
 	void Optimize(SearchInfo& info, int time, int inc);
 
-	class Application {
+	class Engine {
 		private:
 			Position m_Position;
 			std::vector<Move> m_MoveList;
@@ -82,7 +77,6 @@ namespace Engine {
 
 			#define TT_MAX_ENTRIES 0x4000000
 
-			int tt_hits = 0;
 			std::shared_ptr<TranspositionTable> m_Table;
 
 		private:
@@ -90,21 +84,20 @@ namespace Engine {
 			void UCIParseCommand(std::string cmd);
 
 		public:
-			Application(bool debug) : 
-			m_Debug(debug),  
-			m_ShouldClose(false), 
-			m_SearchWorker(),
-			m_Table(new TranspositionTable(0x1000000)),
-      m_SearchContext(new SearchContext())
+			Engine(bool debug) : 
+                m_Debug(debug),  
+                m_ShouldClose(false), 
+                m_SearchWorker(),
+                m_Table(new TranspositionTable(0x1000000)),
+                m_SearchContext(new SearchContext())
 			{ 
 				initialise_all_databases();
     			zobrist::initialise_zobrist_keys();
-				Log::Init();
 
 				// Initialize search context
 				m_SearchContext->table = m_Table;
 			};
-			~Application() { m_SearchWorker.Stop(); }
+			~Engine() { m_SearchWorker.Stop(); }
 			
 
 			void UCICommandLoop();

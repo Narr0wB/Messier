@@ -11,21 +11,19 @@
 #define FLAG_ALPHA 2
 #define FLAG_BETA 3
 
-#define NO_SCORE -0x400000
+#define NO_SCORE 0 
 
 typedef uint8_t TranspositionFlags;
 
-static int t_hits = 0;
-
 struct Transposition {
-    Transposition(TranspositionFlags f, uint64_t h, uint8_t d, int sc, Move b) : 
+    Transposition(TranspositionFlags f, uint64_t h, int8_t d, int sc, Move b) : 
     flags(f), hash(h), depth(d), score(sc), best(b) {};
     
     Transposition() {};
 
     TranspositionFlags flags;
     uint64_t hash;
-    uint8_t depth;
+    int8_t depth;
     int score;
     Move best;
 };
@@ -35,9 +33,6 @@ struct Transposition {
 class TranspositionTable {
     private:
         Transposition* m_DataArray;
-
-        // The number of transpositions slots available per specific hash (in case of a collision)
-        uint8_t m_BucketSize = 1;
 
         // Maximum number of transpositions that can be stored in the table
         uint32_t m_Capacity;
@@ -51,8 +46,8 @@ class TranspositionTable {
 
     public:
         TranspositionTable(uint32_t capacity) : m_Capacity(capacity), m_Size(0), hits(0) {
-            m_DataArray = new Transposition[capacity * m_BucketSize];
-            std::memset(m_DataArray, 0, sizeof(Transposition) * m_Capacity * m_BucketSize);
+            m_DataArray = new Transposition[capacity];
+            std::memset(m_DataArray, 0, sizeof(Transposition) * m_Capacity);
         }
 
         TranspositionTable() {};
@@ -60,14 +55,12 @@ class TranspositionTable {
         // Move constructor
         TranspositionTable(TranspositionTable&& tt) : 
         m_DataArray(tt.m_DataArray),
-        m_BucketSize(tt.m_BucketSize),
         m_Size(tt.m_Size),
         hits(tt.hits) {}
 
         // Move assignment operator
         inline TranspositionTable& operator=(TranspositionTable&& tt) {
             m_DataArray = (tt.m_DataArray);
-            m_BucketSize = (tt.m_BucketSize);
             m_Size = (tt.m_Size);
             hits = (tt.hits);
 

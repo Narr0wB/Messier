@@ -23,10 +23,10 @@ struct RepetitionTable {
 };
 
 struct SearchInfo {
+    uint64_t search_start_time = 0;
+    uint64_t search_end_time   = 0;
     bool timeset = false;
     bool movetimeset = false;
-    uint64_t search_start_time = 0;
-    uint64_t search_time_max = 0;
     bool nodeset = false;
     uint64_t nodeslimit;
     uint64_t nodes;
@@ -80,32 +80,6 @@ struct move_sorting_criterion {
 template <Color Us>
 void order_move_list(MoveList<Us>& m, const std::shared_ptr<SearchContext> ctx, int ply) {
     std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, ply));
-    // int dim = m.size();
-    // bool sorted = 0;
-
-    // while (!sorted) {
-    //     sorted = 1;
-    //     for (int i = 0; i < dim - 1; ++i) {
-    //         if (score_move(m[i], ctx, ply) < score_move(m[i + 1], ctx, ply)) {
-    //             auto tmp = m[i];
-    //             m[i] = m[i + 1];
-    //             m[i + 1] = tmp;
-
-    //             sorted = 0;
-    //         }
-    //     }
-    //     dim -= 1;
-    // }
-
-    // for (int i = 0; i < m.size(); ++i) {
-    //     for (int j = i + 1; j < m.size(); ++j) {
-    //         if (score_move(m[i], ctx, ply) < score_move(m[j], ctx, ply)) {
-    //             auto tmp = m[i];
-    //             m[i] = m[j];
-    //             m[j] = tmp;
-    //         }
-    //     }
-    // }
 }
 
 template <Color C>
@@ -114,6 +88,12 @@ int Quiescence(std::shared_ptr<SearchContext> ctx, int Aalpha, int Bbeta, int de
 
     int score = Evaluate(ctx->board) * (C == WHITE ? 1 : -1);
     int ply = ctx->info.quiescence_depth - depth;
+
+    if ((ctx->stop_flag) ||
+        (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
+        (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
+        return 0;
+    }
 
     if (score >= Bbeta) {
         return Bbeta;
@@ -140,12 +120,6 @@ int Quiescence(std::shared_ptr<SearchContext> ctx, int Aalpha, int Bbeta, int de
 
         ctx->board.undo<C>(m);
 
-        if ((ctx->stop_flag) ||
-            (ctx->info.timeset && GetTimeMS() >= ctx->info.search_time_max) || 
-            (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
-            return 0;
-        }
-
         if (score > Aalpha) {
             Aalpha = score;
         }
@@ -168,20 +142,6 @@ int negamax(std::shared_ptr<SearchContext> ctx, int Aalpha, int Bbeta, int depth
     int found_pv = 0;
     ctx->data.pv_table_len[ply] = ply;
 
-    Transposition tt_hit = ctx->table->probe_hash(ctx->board.get_hash(), Aalpha, Bbeta, depth);
-    if (tt_hit.flags != FLAG_EMPTY && ply >= 2) {
-        // return tt_hit.score;
-    }
-    
-    if (depth <= 0) {
-        int score = Quiescence<C>(ctx, Aalpha, Bbeta, ctx->info.quiescence_depth);
-        ctx->table->push_position({FLAG_EXACT, ctx->board.get_hash(), (uint8_t)depth, score, Move(0)});
-
-        return score;
-    }
-    
-    Transposition node_ = Transposition{FLAG_ALPHA, ctx->board.get_hash(), (uint8_t)depth, NO_SCORE, NO_MOVE};
-    
     int repetitions = 0;
     for (int i = ctx->board.ply() - 2; i >= 0; i -= 2) {
         // If we are above the root ply, and we find a position that has been played before during our search
@@ -195,6 +155,26 @@ int negamax(std::shared_ptr<SearchContext> ctx, int Aalpha, int Bbeta, int depth
         }
     }
 
+    if (depth <= 0) {
+        int score = Quiescence<C>(ctx, Aalpha, Bbeta, ctx->info.quiescence_depth);
+
+        return score;
+    }
+
+    // If out of time or hit any other constraints then exit the search
+    if ((ctx->stop_flag) ||
+        (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
+        (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
+        return 0;
+    }
+
+    Transposition tt_hit = ctx->table->probe_hash(ctx->board.get_hash(), Aalpha, Bbeta, depth);
+    if (tt_hit.flags != FLAG_EMPTY && ply >= 2) {
+        return tt_hit.score;
+    }
+
+    Transposition node_ = Transposition{FLAG_ALPHA, ctx->board.get_hash(), (int8_t)depth, NO_SCORE, NO_MOVE};
+    
     MoveList<C> mL(ctx->board);
 
     if (mL.size() == 0) {
@@ -217,33 +197,34 @@ int negamax(std::shared_ptr<SearchContext> ctx, int Aalpha, int Bbeta, int depth
         if (found_pv) {
             score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1);
 
-            if ((score > Aalpha) && (score < Bbeta)) {
+            if (score > Aalpha && score < Bbeta) {
                 score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
             }
         }
         else {
-            //score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
+            if (move_count == 1) score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
+
             // Late move reduction 
-            if (ply > 2 && move_count > 4 && m.flags() != MoveFlags::CAPTURE && !ctx->board.in_check<C>()) {
-                    // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
-                    score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1 - 2);
+            else if (ply > 2 && move_count > 4 && m.flags() != MoveFlags::CAPTURE && !ctx->board.in_check<C>()) {
+                // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
+                score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1 - 2);
 
-                    if (score > Aalpha) {
-                        score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1);
+                if (score > Aalpha) {
+                    score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1);
 
-                        if ((score > Aalpha) && (score < Bbeta)) {
-
-                            // Do full depth and full window
-                            score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
-                        }
+                    if (score > Aalpha && score < Bbeta) {
+                        // Do full depth and full window
+                        score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
                     }
-                    ctx->reduced_nodes++;
                 }
+
+                ctx->reduced_nodes++;
+            }
             else {
                 // Do reduced window
                 score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1);
 
-                if ((score > Aalpha) && (score < Bbeta)) {
+                if (score > Aalpha && score < Bbeta) {
                     score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
                 }
             }
@@ -285,13 +266,12 @@ int negamax(std::shared_ptr<SearchContext> ctx, int Aalpha, int Bbeta, int depth
 
             return Bbeta;
         }
-    }
 
-    // If out of time or hit any other constraints then exit the search
-    if ((ctx->stop_flag) ||
-        (ctx->info.timeset && GetTimeMS() >= ctx->info.search_time_max) || 
-        (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
-        return 0;
+        if ((ctx->stop_flag) ||
+            (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
+            (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
+            return 0;
+        }
     }
 
     node_.score = Aalpha;
@@ -313,23 +293,29 @@ void Search(std::shared_ptr<SearchContext> ctx) {
     for (; current_depth <= max_depth; ++current_depth) {
         // Set the context's search depth to the current depth in the iterative deepening process
         ctx->info.depth = current_depth;
+        
+        auto last_search_nodes = ctx->info.nodes;
+        auto start_current_search = GetTimeMS();
 
         // Score the current position
         int score = negamax<C>(ctx, alpha, beta, current_depth) * (C == WHITE ? 1 : -1);
 
+        auto end_current_search = GetTimeMS();
 
-        std::cout << "info depth " << current_depth << " score cp " << score << " nodes " << ctx->info.nodes << " tthits " << (ctx->table->hits) << " pv ";
+        // If we are out of time or over the limit for nodes (if there is one) then break
+        if ((ctx->stop_flag) ||
+            (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
+            (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
+            break;
+        }
+        
+        uint32_t nps = (float)(ctx->info.nodes - last_search_nodes) / ((end_current_search - start_current_search) / 1000.0f);   
+
+        std::cout << "info depth " << current_depth << " score cp " << score << " nodes " << ctx->info.nodes << " nps " << nps << " tthits " << (ctx->table->hits) << " pvlen " << ctx->data.pv_table_len[0] << " pv ";
         for (int j = 0; j < ctx->data.pv_table_len[0]; j++) {
             std::cout << ctx->data.pv_table[0][j] << " ";
         }
         std::cout << std::endl;
-
-        // If we are out of time or over the limit for nodes (if there is one) then break
-        if ((ctx->stop_flag) ||
-            (ctx->info.timeset && GetTimeMS() >= ctx->info.search_time_max) || 
-            (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
-            break;
-        }
 
         bestMove = ctx->data.pv_table[0][0];
 

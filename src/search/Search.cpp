@@ -13,38 +13,35 @@ static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
 
 namespace Search {
 
-int mvv_lva(const Move &m_, const Position &p_) {
-    if (m_.flags() != MoveFlags::CAPTURE) {
-        return 0;
+    int mvv_lva(const Move &m_, const Position &p_) {
+        if (m_.flags() != MoveFlags::CAPTURE) {
+            return 0;
+        }
+
+        PieceType attacker = type_of(p_.at(m_.from()));
+        PieceType victim = type_of(p_.at(m_.to()));
+
+        return mvv_lva_lookup[attacker][victim];
     }
 
-    PieceType attacker = type_of(p_.at(m_.from()));
-    PieceType victim = type_of(p_.at(m_.to()));
+    int score_move(const Move& m_, const std::shared_ptr<SearchContext> ctx, int ply) {
+        // Score the move from the previous iterative search pv higher 
+        if (ctx->info.depth != 0 && m_ == ctx->data.pv_table[0][ply]) {
+            return MAX_MOVE_SCORE;
+        }
 
-    return mvv_lva_lookup[attacker][victim];
-}
+        if (m_.flags() == MoveFlags::CAPTURE) {
+            return mvv_lva(m_, ctx->board) + 10000;
+        }
 
-int score_move(const Move& m_, const std::shared_ptr<SearchContext> ctx, int ply) {
-    int value = 0;
+        if (m_ == ctx->data.killer_moves[0][ply]) {
+            return 9000;
+        }
+        if (m_ == ctx->data.killer_moves[1][ply]) {
+            return 8000;
+        }
 
-    // Score the move from the previous iterative search pv higher 
-    if (ctx->info.depth != 0 && m_ == ctx->data.pv_table[0][ply]) {
-        return MAX_MOVE_SCORE;
+        return ctx->data.history_moves[m_.from()][m_.to()];
     }
-
-    if (m_.flags() == MoveFlags::CAPTURE) {
-        return mvv_lva(m_, ctx->board) + 10000;
-    }
-
-    if (m_ == ctx->data.killer_moves[0][ply]) {
-        return 9000;
-    }
-    if (m_ == ctx->data.killer_moves[1][ply]) {
-        return 8000;
-    }
-
-    return ctx->data.history_moves[m_.from()][m_.to()];
-    //return 0;
-}
 
 } // namespace Search
