@@ -33,7 +33,7 @@ class SearchWorker {
 
             Stop();
             m_SearchContext = ctx;
-            ctx->stop_flag = false;
+            ctx->stop = false;
             
             m_State = ThreadState::SEARCHING;
             m_Thread = std::unique_ptr<std::thread>(new std::thread(&Search::Search<C>, ctx));

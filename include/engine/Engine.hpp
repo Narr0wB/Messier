@@ -84,7 +84,7 @@ namespace Engine {
 			void UCIParseCommand(std::string cmd);
 
 		public:
-			Engine(bool debug) : 
+			Engine(int argc, char** argv, bool debug) : 
                 m_Debug(debug),  
                 m_ShouldClose(false), 
                 m_SearchWorker(),
@@ -96,6 +96,20 @@ namespace Engine {
 
 				// Initialize search context
 				m_SearchContext->table = m_Table;
+
+				// Parse command line arguments
+				for (int i = 1; i < argc; ++i) {
+					std::string arg = argv[i];
+
+					if (arg.find("--uci=") != std::string::npos) {
+						std::string raw_commands = arg.substr(arg.find("=") + 1);
+						std::vector<std::string> commands = tokenize(raw_commands, ';');
+
+						for (auto& cmd : commands) {
+							UCIParseCommand(cmd);
+						}
+					}
+				}
 			};
 			~Engine() { m_SearchWorker.Stop(); }
 			

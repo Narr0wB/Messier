@@ -8,7 +8,7 @@ ThreadState SearchWorker::GetState() {
 void SearchWorker::Stop() {
     if (m_State == ThreadState::IDLE || m_Thread == nullptr) return;
     
-    if (m_SearchContext) { m_SearchContext->stop_flag = true; }
+    if (m_SearchContext) { m_SearchContext->stop = true; }
 
     if (m_Thread->joinable())
         m_Thread->join();

@@ -23,6 +23,38 @@ namespace Search {
 
         return mvv_lva_lookup[attacker][victim];
     }
+    
+    int SEE(Position& pos, Square sq, Color side) {
+        int value = pos.at(sq) * ;
+        Bitboard occupied = pos.all_pieces<WHITE>() | pos.all_pieces<BLACK>();
+
+        int pt;
+        Square from;
+        Bitboard tmp;
+        bool found = false;
+        for (pt = PAWN; pt < KING; pt++) {
+            if ((side == Color::WHITE && (tmp = pos.attacker_from<WHITE>((PieceType)pt, sq, occupied))) || 
+                (side == Color::BLACK && (tmp = pos.attacker_from<BLACK>((PieceType)pt, sq, occupied)))  ) {
+                from = pop_lsb(&tmp);
+                found = true;
+                break;
+            }
+        }
+
+        // TODO: If piece found 
+        if (found) {
+            Piece captured = pos.at(sq);
+            if (captured != NO_PIECE)
+                Move m = Move(from, sq, MoveFlags::CAPTURE);
+            else {
+                Move m = Move(from, sq, MoveFlags::QUIET);
+            }
+
+            return 0;
+        }
+
+        return value;
+    }
 
     int score_move(const Move& m_, const std::shared_ptr<SearchContext> ctx, int ply) {
         // Score the move from the previous iterative search pv higher 

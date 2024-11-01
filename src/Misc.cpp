@@ -1,7 +1,7 @@
 
 #include <engine/Misc.hpp>
 
-std::vector<std::string> tokenize(std::string str, char delim) {
+std::vector<std::string> tokenize(std::string& str, char delim) {
     std::stringstream stream(str);
     std::string tmp;
     std::vector<std::string> tokens;

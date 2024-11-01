@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <chrono>
 
-std::vector<std::string> tokenize(std::string str, char delim);
+std::vector<std::string> tokenize(std::string& str, char delim);
 
 uint64_t GetTimeMS();
 

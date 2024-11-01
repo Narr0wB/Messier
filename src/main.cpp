@@ -15,10 +15,10 @@
 
 */
 
-int main(void) {
+int main(int argc, char** argv) {
     Log::Init();
 
-	Engine::Engine app(true);
+	Engine::Engine app(argc, argv, true);
 	app.UCICommandLoop();
 
     // info depth 7 score cp -65 nodes 249714 tthits 64170 pv b1c3 c7c6 g1f3 f7f6 d2d4 b7b6 e2e4
