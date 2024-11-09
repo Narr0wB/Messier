@@ -35,6 +35,7 @@ int main(int argc, char** argv) {
     // info depth 10 score cp -35 nodes 12371631 tthits 191554 pvlen 10 pv a5h5 d2b3 f8h6 d3c4 h6c1 (capture) a1c1 (capture) a7a5 c4g8 (capture) h8g8 (capture) d1d3
     // info depth 10 score cp -40 nodes 11973931 tthits 81955 pvlen 10 pv a5h5 d2b3 f8h6 c1h6 (capture) h5h6 (capture) d3c4 a7a5 c4g8 (capture) h8g8 (capture) d1d3 
     // info depth 10 score cp -40 nodes 11585913 tthits 80611 pvlen 10 pv a5h5 d2b3 f8h6 c1h6 (capture) h5h6 (capture) d3c4 a7a5 c4g8 (capture) h8g8 (capture) d1d3
+    // info depth 10 score cp -45 nodes 10787026 nps 1653997 tthits 122816 pvlen 10 pv a5h5 e4e5 g6g5 e5f6 (capture) e7f6 (capture) f1e1 e8d8 d2e4 g5g4 f3d2
    
 	return 0;
 }

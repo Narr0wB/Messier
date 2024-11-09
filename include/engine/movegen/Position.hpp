@@ -234,9 +234,13 @@ inline Bitboard Position::attacker_from(PieceType pt, Square s, Bitboard occ) co
 		case KNIGHT:
 			return (attacks<KNIGHT>(s, occ) & piece_bb[WHITE_KNIGHT]);
 		case BISHOP:
-			return (attacks<BISHOP>(s, occ) & (piece_bb[WHITE_BISHOP] | piece_bb[WHITE_QUEEN]));
+			return (attacks<BISHOP>(s, occ) & piece_bb[WHITE_BISHOP]);
 		case ROOK:
-			return (attacks<ROOK>(s, occ) & (piece_bb[WHITE_ROOK] | piece_bb[WHITE_QUEEN]));
+			return (attacks<ROOK>(s, occ) & piece_bb[WHITE_ROOK]);
+        case QUEEN:
+            return ((attacks<ROOK>(s, occ) | attacks<BISHOP>(s, occ)) & piece_bb[WHITE_QUEEN]);
+        case KING:
+            return (attacks<KING>(s, occ) & piece_bb[WHITE_KING]);
 		}
 	}
 	else {
@@ -246,9 +250,13 @@ inline Bitboard Position::attacker_from(PieceType pt, Square s, Bitboard occ) co
 		case KNIGHT:
 			return (attacks<KNIGHT>(s, occ) & piece_bb[BLACK_KNIGHT]);
 		case BISHOP:
-			return (attacks<BISHOP>(s, occ) & (piece_bb[BLACK_BISHOP] | piece_bb[BLACK_QUEEN]));
+			return (attacks<BISHOP>(s, occ) & piece_bb[BLACK_BISHOP]);
 		case ROOK:
-			return (attacks<ROOK>(s, occ) & (piece_bb[BLACK_ROOK] | piece_bb[BLACK_QUEEN]));
+			return (attacks<ROOK>(s, occ) & piece_bb[BLACK_ROOK]);
+        case QUEEN:
+            return ((attacks<ROOK>(s, occ) | attacks<BISHOP>(s, occ)) & piece_bb[BLACK_QUEEN]);
+        case KING:
+            return (attacks<KING>(s, occ) & piece_bb[BLACK_KING]);
 		}
 	};
 

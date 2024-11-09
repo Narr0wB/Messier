@@ -1,9 +1,6 @@
 
 #include <engine/search/Evaluate.hpp>
 
-// STATIC ARRAYS
-
-static const int piece_value[NPIECE_TYPES] = {100, 300, 320, 500, 900, 20000};
 
 int Evaluate(Position& position) {
     int score = 0;

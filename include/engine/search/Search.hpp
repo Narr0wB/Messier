@@ -2,6 +2,7 @@
 #ifndef SEARCH_H 
 #define SEARCH_H
 
+#include <cmath>
 #include <iostream>
 
 #include <engine/movegen/Position.hpp>
@@ -53,27 +54,57 @@ struct SearchContext {
 
 namespace Search {
     int mvv_lva(const Move &m_, const Position &p_);
-    int SEE(Position& pos, Move& m);
+
+    template <Color Us>
+    int SEE(Position& pos, Square to) {
+        int value = 0;
+        Bitboard occupied = pos.all_pieces<WHITE>() | pos.all_pieces<BLACK>();
+
+        int pt;
+        Square from = NO_SQUARE;
+        Bitboard attackers;
+        for (pt = PAWN; pt < KING; pt++) {
+            if ( (attackers = pos.attacker_from<Us>((PieceType)pt, to, occupied)) ) {
+                from = pop_lsb(&attackers);
+                break;
+            }
+        }
+
+        if (from != NO_SQUARE) {
+            int captured = pos.at(to) == NO_PIECE ? 6 : type_of(pos.at(to));
+            Move see_move(from, to, captured == 6 ? MoveFlags::QUIET : MoveFlags::CAPTURE);
+
+            pos.play<Us>(see_move);
+
+            value = piece_value[captured] - SEE<~Us>(pos, to);    
+
+            pos.undo<Us>(see_move);
+        }
+        
+        return value;
+    }
 
     #define MAX_MOVE_SCORE 1000000
-    int score_move(const Move& m_, const std::shared_ptr<SearchContext> ctx, int ply);
-
+    int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply);
 
     // Order moves using context
     template <Color Us>
     struct move_sorting_criterion {
-        const std::shared_ptr<SearchContext> _ctx;
+        const std::shared_ptr<SearchContext>& _ctx;
         int _ply;
 
-        move_sorting_criterion(const std::shared_ptr<SearchContext> c, int p) : _ctx(c), _ply(p) {}; 
+        move_sorting_criterion(const std::shared_ptr<SearchContext>& c, int p) : _ctx(c), _ply(p) {}; 
 
         bool operator() (const Move& a, const Move& b) {
+            // Since the std::stable_sort function actually sorts elements in a list in ascending order by checking if a < b is true,  
+            // we have to flip the comparison in order to have a list ordered in descending order 
             return score_move(a, _ctx, _ply) > score_move(b, _ctx, _ply);
         }
     };
 
     template <Color Us>
     void order_move_list(MoveList<Us>& m, const std::shared_ptr<SearchContext> ctx, int ply) {
+        // This function sorts the movelist in descending order
         std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, ply));
     }
 
@@ -209,9 +240,10 @@ namespace Search {
                 if (move_count == 1) score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
 
                 // Late move reduction 
-                else if (ply > 2 && move_count > 4 && m.flags() != MoveFlags::CAPTURE && !ctx->board.in_check<C>()) {
+                else if (ply > 2 && move_count > 3 && m.flags() != MoveFlags::CAPTURE && !ctx->board.in_check<C>()) {
                     // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
-                    score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1 - 2);
+                    int reduction = std::max(1, depth - 4);
+                    score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, reduction);
 
                     if (score > Aalpha) {
                         score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1);
@@ -240,14 +272,24 @@ namespace Search {
             if (score > Aalpha) {
                 Aalpha = score;
                 found_pv = 1;
-
-                // Update the main PV line
+                
+                // Triangular transposition tables
+                // 
+                // For each ply we have a pv_array 
+                // 
+                // 0: m0 m1 m2 m3 m4
+                // 1: N  m1 m2 m3 m4
+                // 2: N  N  m2 m3 m4
+                // 3: N  N  N  m3 m4
+                // 4: N  N  N  N  m4 
+                
+                // and each ply copies the moves at the next ply 
                 ctx->data.pv_table[ply][ply] = m;
                 for (int i = ply + 1; i < ctx->data.pv_table_len[ply + 1]; ++i) {
                     ctx->data.pv_table[ply][i] = ctx->data.pv_table[ply + 1][i];
                 }
                 ctx->data.pv_table_len[ply] = ctx->data.pv_table_len[ply + 1];
-                
+
                 // Rank history moves
                 if (m.flags() == MoveFlags::QUIET) ctx->data.history_moves[m.from()][m.to()] += depth;
 
@@ -289,11 +331,11 @@ namespace Search {
     void Search(std::shared_ptr<SearchContext> ctx) {
         int alpha = -INF;
         int beta = INF;
-
         int max_depth = ctx->info.depth;
-
         int current_depth = 0;
+        int as_window = 50;
         Move bestMove = NO_MOVE;
+
         for (; current_depth <= max_depth; ++current_depth) {
             // Set the context's search depth to the current depth in the iterative deepening process
             ctx->info.depth = current_depth;
@@ -301,10 +343,19 @@ namespace Search {
             auto last_search_nodes = ctx->info.nodes;
             auto start_current_search = GetTimeMS();
 
-            // Score the current position
-            int score = negamax<C>(ctx, alpha, beta, current_depth) * (C == WHITE ? 1 : -1);
+            int score = negamax<C>(ctx, alpha, beta, current_depth);
 
             auto end_current_search = GetTimeMS();
+
+            // If we fall out of our aspiration window then reset the alpha and beta parameters;
+            // if ((score <= alpha) || (score >= beta)) {
+            //     alpha = -INF;
+            //     beta = INF;
+            // } else {
+            //     // Update aspiration window
+            //     alpha = score - as_window;
+            //     beta = score + as_window; 
+            // }
 
             // If we are out of time or over the limit for nodes (if there is one) then break
             if ((ctx->stop) ||
@@ -315,7 +366,7 @@ namespace Search {
             
             uint32_t nps = (float)(ctx->info.nodes - last_search_nodes) / ((end_current_search - start_current_search) / 1000.0f);   
 
-            std::cout << "info depth " << current_depth << " score cp " << score << " nodes " << ctx->info.nodes << " nps " << nps << " tthits " << (ctx->table->hits) << " pvlen " << ctx->data.pv_table_len[0] << " pv ";
+            std::cout << "info depth " << current_depth << " score cp " << score * (C == WHITE ? 1 : -1) << " nodes " << ctx->info.nodes << " nps " << nps << " tthits " << (ctx->table->hits) << " pvlen " << ctx->data.pv_table_len[0] << " pv ";
             for (int j = 0; j < ctx->data.pv_table_len[0]; j++) {
                 std::cout << ctx->data.pv_table[0][j] << " ";
             }

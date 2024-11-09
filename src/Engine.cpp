@@ -70,6 +70,8 @@ namespace Engine {
 		std::vector<std::string> tokens = tokenize(command, ' ');
 
 		if (tokens[0] == "position") {
+            m_SearchContext->table->clear();
+
 			if (tokens[1] == "startpos") {
 				m_Position.reset();
 				Position::set(START_POSITION, m_Position);
@@ -133,7 +135,7 @@ namespace Engine {
 		else if (tokens[0] == "uci") {
 			std::cout << "id name " << "Narrow v1.0" << std::endl;
 			std::cout << "id author Narrow" << std::endl;
-			std::cout << "option name Hash type spin default 16 min 1 max 262144 " << std::endl;
+			std::cout << "option name Hash type spin default 16 min 1 max 2048" << std::endl;
 			std::cout << "uciok" << std::endl;
 		}
 
