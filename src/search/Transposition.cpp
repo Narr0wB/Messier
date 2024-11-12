@@ -33,6 +33,7 @@ void TranspositionTable::push_position(Transposition t)
 Transposition TranspositionTable::probe_hash(uint64_t hash, int alpha, int beta, int depth) {
     Transposition position = m_DataArray[hash % m_Capacity];
 
+    // TODO: Since implememting fail soft search, must investigate the effect of fail-hard TT lookup (current)
     if (position.hash == hash) {
         if (position.depth >= depth) {
             hits++;
