@@ -26,7 +26,7 @@ namespace Search {
    
     int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply) {
         // Score the move from the previous iterative search pv higher 
-        if (ctx->info.depth != 0 && m_ == ctx->data.pv_table[0][ply]) {
+        if (m_ == ctx->data.pv_table[0][ply]) {
             return MAX_MOVE_SCORE;
         }
 

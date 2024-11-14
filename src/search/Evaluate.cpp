@@ -22,7 +22,7 @@ int Evaluate(Position& position) {
         while (black_piece_bb)
         {
             Square piece_sq = pop_lsb(&black_piece_bb);
-            if (p != PieceType::KING) score += piece_position_value[p + 5][piece_sq];
+            if (p != PieceType::KING) score -= piece_position_value[p + 5][piece_sq];
             score -= piece_value[p];
         }
     }

@@ -25,6 +25,8 @@ copies or substantial portions of the Software.
 #include <engine/movegen/Tables.hpp>
 #include <engine/Log.hpp>
 
+#define LEONID_POSITION "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - -"
+
 //A psuedorandom number generator
 //Source: Stockfish
 class PRNG {

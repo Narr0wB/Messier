@@ -49,7 +49,8 @@ struct SearchContext {
     SearchData data;
 
     // debug
-    uint32_t reduced_nodes;
+    uint32_t reduced_nodes = 0;
+    uint64_t q_nodes = 0;
 };
 
 namespace Search {
@@ -109,18 +110,19 @@ namespace Search {
     }
 
     template <Color C>
-    int Quiescence(std::shared_ptr<SearchContext> ctx, int Aalpha, int Bbeta, int depth) {
+    int Quiescence(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth) {
         ctx->info.nodes++;
-
-        int score = Evaluate(ctx->board) * (C == WHITE ? 1 : -1);
-        int best_score = -INF;
-        int ply = ctx->info.quiescence_depth - depth;
+        ctx->q_nodes++;
 
         if ((ctx->stop) ||
             (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
             (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
             return 0;
         }
+
+        int score = Evaluate(ctx->board) * (C == WHITE ? 1 : -1);
+        int best_score = -INF;
+        int ply = ctx->info.quiescence_depth - depth;
 
         if (score >= Bbeta) {
             return Bbeta;
@@ -139,22 +141,14 @@ namespace Search {
         }
 
         MoveList<C> mL(ctx->board);
-
-        if (mL.size() == 0) {
-            if (ctx->board.in_check<C>()) {
-                // If checkmate
-                return SHRT_MIN + ply;
-            }
-            else {
-                // If stalemate
-                return 0;
-            }
-        }
-
         order_move_list<C>(mL, ctx, ply);
 
         for (const Move& m : mL) {
             if (m.flags() != MoveFlags::CAPTURE) continue;
+
+            int see = SEE<C>(ctx->board, m.to());
+            if (see < 0)
+                continue;
 
             ctx->board.play<C>(m);
 
@@ -175,11 +169,22 @@ namespace Search {
             }
         }
 
+        if (mL.size() == 0) {
+            if (ctx->board.in_check<C>()) {
+                // If checkmate
+                return SHRT_MIN + ply;
+            }
+            else {
+                // If stalemate
+                return 0;
+            }
+        }
+
         return Aalpha;
     }
 
     template <Color C>
-    int negamax(std::shared_ptr<SearchContext> ctx, int Aalpha, int Bbeta, int depth) {
+    int negamax(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth) {
         ctx->info.nodes++;
 
         int ply = ctx->info.depth - depth;
@@ -240,7 +245,7 @@ namespace Search {
                 // Late move reduction 
                 else if (depth >= 3 && move_count > 3 && m.flags() != MoveFlags::CAPTURE && !ctx->board.in_check<C>()) {
                     // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
-                    int reduction = std::max(1, depth - 1 - 2);
+                    int reduction = std::max(1, depth - 1 - (move_count - 1));
                     score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, reduction);
 
                     if (score > Aalpha) {
@@ -378,7 +383,7 @@ namespace Search {
             
             uint32_t nps = (float)(ctx->info.nodes - last_search_nodes) / ((end_current_search - start_current_search) / 1000.0f);   
 
-            std::cout << "info depth " << current_depth << " score cp " << score * (C == WHITE ? 1 : -1) << " nodes " << ctx->info.nodes << " nps " << nps << " tthits " << (ctx->table->hits) << " pvlen " << ctx->data.pv_table_len[0] << " pv ";
+            std::cout << "info depth " << current_depth << " score cp " << score * (C == WHITE ? 1 : -1) << " nodes " << ctx->info.nodes << " nps " << nps << " tthits " << ctx->table->hits << " qnodes " << ctx->q_nodes << " BF " << std::pow(ctx->info.nodes, 1.0f / current_depth) << " pvlen " << ctx->data.pv_table_len[0] << " pv ";
             for (int j = 0; j < ctx->data.pv_table_len[0]; j++) {
                 std::cout << ctx->data.pv_table[0][j] << " ";
             }
@@ -387,9 +392,11 @@ namespace Search {
             bestMove = ctx->data.pv_table[0][0];
 
             ctx->table->hits = 0;
+            ctx->q_nodes = 0;
+            ctx->info.nodes = 0;
         }
 
-        ctx->info.nodes = 0;
+        ctx->reduced_nodes = 0;
 
         // Print the best move found
         std::cout << "bestmove ";

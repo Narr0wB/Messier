@@ -37,6 +37,10 @@ Transposition TranspositionTable::probe_hash(uint64_t hash, int alpha, int beta,
     if (position.hash == hash) {
         if (position.depth >= depth) {
             hits++;
+            
+            // if (position.flags != FLAG_EMPTY)
+            //     return position;
+
             if (position.flags == FLAG_EXACT) {
                 return position;
             }
