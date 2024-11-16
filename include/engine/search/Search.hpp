@@ -13,20 +13,24 @@
 #include <engine/Log.hpp>
 
 #define INF 5000000
-#define TIME_LIMIT 15 * 1000ms
 
 #define MAX_DEPTH 20
-#define MAX_TABLE 21
+#define MAX_TABLE MAX_DEPTH
+
+#define MATE_SCORE UINT16_MAX 
 
 struct SearchInfo {
     uint64_t search_start_time = 0;
     uint64_t search_end_time   = 0;
+
     bool timeset = false;
     bool movetimeset = false;
     bool nodeset = false;
+
     uint64_t nodeslimit;
     uint64_t nodes;
     uint32_t movestogo;
+
     int depth;
     int quiescence_depth;
 };
@@ -35,8 +39,16 @@ struct SearchData {
     Move pv_table[MAX_TABLE][MAX_TABLE];
     int pv_table_len[MAX_TABLE];
 
-    Move killer_moves[2][MAX_TABLE];
+    Move killer_moves[MAX_TABLE][2];
     int history_moves[64][64];
+};
+
+struct SearchStack {
+    int ply;
+    int static_eval;
+    int move_count;
+    Move* pv;
+    bool tt_hit;
 };
 
 struct SearchContext {
@@ -86,30 +98,34 @@ namespace Search {
     }
 
     #define MAX_MOVE_SCORE 1000000
-    int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply);
+    int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move);
 
     // Order moves using context
     template <Color Us>
     struct move_sorting_criterion {
         const std::shared_ptr<SearchContext>& _ctx;
         int _ply;
+        Move _ttmove;
 
-        move_sorting_criterion(const std::shared_ptr<SearchContext>& c, int p) : _ctx(c), _ply(p) {}; 
+        move_sorting_criterion(const std::shared_ptr<SearchContext>& c, int p, Move m) : _ctx(c), _ply(p), _ttmove(m) {}; 
 
         bool operator() (const Move& a, const Move& b) {
             // Since the std::stable_sort function actually sorts elements in a list in ascending order by checking if a < b is true,  
             // we have to flip the comparison in order to have a list ordered in descending order 
-            return score_move(a, _ctx, _ply) > score_move(b, _ctx, _ply);
+            return score_move(a, _ctx, _ply, _ttmove) > score_move(b, _ctx, _ply, _ttmove);
         }
     };
 
     template <Color Us>
-    void order_move_list(MoveList<Us>& m, const std::shared_ptr<SearchContext> ctx, int ply) {
+    void order_move_list(MoveList<Us>& m, const std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move) {
         // This function sorts the movelist in descending order
-        std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, ply));
+        std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, ply, tt_move));
     }
 
-    template <Color C>
+    int mate_in(int ply);
+    int mated_in(int ply);
+
+    template <Color C, bool PVnode>
     int Quiescence(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth) {
         ctx->info.nodes++;
         ctx->q_nodes++;
@@ -120,12 +136,13 @@ namespace Search {
             return 0;
         }
 
-        int score = Evaluate(ctx->board) * (C == WHITE ? 1 : -1);
+        int static_eval = Evaluate(ctx->board) * (C == WHITE ? 1 : -1); 
+        int score = static_eval;
         int best_score = -INF;
         int ply = ctx->info.quiescence_depth - depth;
 
         if (score >= Bbeta) {
-            return Bbeta;
+            return score;
         }
 
         if (score > best_score) {
@@ -141,18 +158,18 @@ namespace Search {
         }
 
         MoveList<C> mL(ctx->board);
-        order_move_list<C>(mL, ctx, ply);
+        order_move_list<C>(mL, ctx, ply, NO_MOVE);
 
         for (const Move& m : mL) {
-            if (m.flags() != MoveFlags::CAPTURE) continue;
-
+            if (isQuiet(m)) continue;
+            
             int see = SEE<C>(ctx->board, m.to());
             if (see < 0)
                 continue;
 
             ctx->board.play<C>(m);
 
-            score = -Quiescence<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
+            score = -Quiescence<~C, PVnode>(ctx, -Bbeta, -Aalpha, depth - 1);
 
             ctx->board.undo<C>(m);
 
@@ -161,18 +178,18 @@ namespace Search {
 
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
-                }
-            }
 
-            if (best_score >= Bbeta) {
-                return Bbeta;
+                    if (best_score >= Bbeta) {
+                        return best_score;
+                    }
+                }
             }
         }
 
         if (mL.size() == 0) {
             if (ctx->board.in_check<C>()) {
                 // If checkmate
-                return SHRT_MIN + ply;
+                return mated_in(ply);
             }
             else {
                 // If stalemate
@@ -180,36 +197,28 @@ namespace Search {
             }
         }
 
-        return Aalpha;
+        return best_score;
     }
 
-    template <Color C>
-    int negamax(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth) {
+    template <Color C, bool PVnode>
+    int negamax(std::shared_ptr<SearchContext>& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth) {
         ctx->info.nodes++;
 
-        int ply = ctx->info.depth - depth;
+        int ply = ss->ply;
         int move_count = 0;
         int score = 0;
+        int static_eval = 0;
         int best_score = -INF;
-        int found_pv = 0;
         ctx->data.pv_table_len[ply] = ply;
 
-        int repetitions = 0;
-        for (int i = ctx->board.ply() - 2; i >= 0; i -= 2) {
-            // If we are above the root ply, and we find a position that has been played before during our search
-            // then that means that most likely this will be repeated, leading to a three fold repetition draw
-            // or if we just find 3 repetitions (including from before root positions) (we have 3 repetitions
-            // because we have found 2 + the one we are currently analyzing)
-            
-            if (ctx->board.get_hash() == ctx->board.history[i].hash &&
-                (i > ctx->board.ply() - ply || ++repetitions == 2)) {
-                return 0;
-            }
+        // If depth is below zero, dip into quiescence search
+        if (depth <= 0) {
+            return Quiescence<C, PVnode>(ctx, Aalpha, Bbeta, ctx->info.quiescence_depth);
         }
 
-        if (depth <= 0) {
-            return Quiescence<C>(ctx, Aalpha, Bbeta, ctx->info.quiescence_depth);
-        }
+        // If we are not in a PVnode, make sure the window is reduced (i.e. alpha is equal to beta + 1)
+        assert(PVnode || (Aalpha == Bbeta - 1));
+        assert(0 < depth && depth < MAX_DEPTH + 1);
 
         // If out of time or hit any other constraints then exit the search
         if ((ctx->stop) ||
@@ -218,105 +227,145 @@ namespace Search {
             return 0;
         }
 
-        Transposition tt_hit = ctx->table->probe_hash(ctx->board.get_hash(), Aalpha, Bbeta, depth);
-        if (tt_hit.flags != FLAG_EMPTY && ply >= 2) {
-            return tt_hit.score;
+        if (ply != 0) {
+            // Check for early draws
+            int repetitions = 0;
+            for (int i = ctx->board.ply() - 2; i >= 0; i -= 2) {
+                // If we are above the root ply, and we find a position that has been played before during our search
+                // then that means that most likely this will be repeated, leading to a three fold repetition draw
+                // or if we just find 3 repetitions (including from before root positions) (we have 3 repetitions
+                // because we have found 2 + the one we are currently analyzing)
+                
+                if (ctx->board.get_hash() == ctx->board.history[i].hash &&
+                    (i > ctx->board.ply() - ply || ++repetitions == 2)) {
+                    return 0;
+                }
+            }
+
+            // Mate distance pruning 
+            int alpha = std::max(mated_in(ply), Aalpha);
+            int beta  = std::min(mate_in(ply + 1), Bbeta);
+            if (alpha >= beta)
+                return alpha;
+        }
+        
+        // Futility pruning, if at frontier nodes we realize that our position, even after adding the value of a queen, is still under alpha then 
+        // prune this node by returning the static evaluation  
+        // if (depth == 1 && !ctx->board.in_check<C>() && static_eval + piece_value[QUEEN] < Aalpha) {
+        //     return static_eval + piece_value[QUEEN];   
+        // }
+
+        Transposition tte = ctx->table->probe_hash(ctx->board.get_hash());
+        bool tt_hit = ss->tt_hit = tte.flags != FLAG_EMPTY;
+        Move tt_move = tte.move;
+        int tt_score = tte.score;
+        uint8_t tt_bound = tte.flags;
+        int8_t tt_depth = tte.depth;
+        // If we are not in a pv node, and we got a useful score from the TT, return early
+        if (!PVnode 
+            && tt_bound != FLAG_EMPTY
+            && tt_depth >= depth
+            && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
+            ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
+            ||   (tt_bound == FLAG_EXACT))
+        ) {
+            return tt_score;
+        }
+        
+        if (ctx->board.in_check<C>()) {
+            static_eval = ss->static_eval = 0;
+        }
+        else if (tt_hit) {
+            // TODO: Add eval into the TE object
+            static_eval = ss->static_eval = tt_score; 
+        }
+        else {
+            static_eval = ss->static_eval = Evaluate(ctx->board); 
         }
 
         Transposition node_ = Transposition{FLAG_ALPHA, ctx->board.get_hash(), (int8_t)depth, NO_SCORE, NO_MOVE};
         
+        // Generate moves and order them
         MoveList<C> mL(ctx->board);
-        order_move_list(mL, ctx, ply);
+        order_move_list(mL, ctx, ply, tt_move);
 
         for (const Move& m : mL) {
             move_count++;
             ctx->board.play<C>(m);
-
-            if (found_pv) {
-                score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1);
-
-                if (score > Aalpha && score < Bbeta) {
-                    score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
-                }
-            }
-            else {
-                if (move_count == 1) score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
-
-                // Late move reduction 
-                else if (depth >= 3 && move_count > 3 && m.flags() != MoveFlags::CAPTURE && !ctx->board.in_check<C>()) {
-                    // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
-                    int reduction = std::max(1, depth - 1 - (move_count - 1));
-                    score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, reduction);
-
-                    if (score > Aalpha) {
-                        score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1);
-
-                        if (score > Aalpha && score < Bbeta) {
-                            // Do full depth and full window
-                            score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
-                        }
-                    }
-
-                    ctx->reduced_nodes++;
-                }
-                else {
-                    // Do reduced window
-                    score = -negamax<~C>(ctx, -Aalpha - 1, -Aalpha, depth - 1);
-
-                    if (score > Aalpha && score < Bbeta) {
-                        score = -negamax<~C>(ctx, -Bbeta, -Aalpha, depth - 1);
-                    }
-                }
-            }  
             
+            // Late move reduction 
+            if (depth >= 3 
+                && move_count > 3 
+                && isQuiet(m) 
+                && (!ctx->board.in_check<C>() && !ctx->board.in_check<~C>())
+                && !PVnode) {
+                // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
+                int reduction = std::max(1, depth - (move_count - 2) - 1);
+                score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, reduction);
+
+                if (score > Aalpha) {
+                    score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+                }
+
+                ctx->reduced_nodes++;
+            }
+
+            // If we cannot reduce or we are not in a PV node, then search at full depth but with a reduced window
+            else if (move_count > 1 || !PVnode) {
+                score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+            }
+
+            if (PVnode && (move_count == 1 || score > Aalpha)) {
+                score = -negamax<~C, true>(ctx, ss + 1, -Bbeta, -Aalpha, depth - 1);
+            }
+
             ctx->board.undo<C>(m);
 
             if (score > best_score) {
                 best_score = score;
+                node_.move = m;
+
                 // We have found a move that is better than the current alpha
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
-                    found_pv = 1;
                     
                     // Triangular transposition tables
                     // 
-                    // For each ply we have a pv_array 
-                    // 
-                    // 0: m0 m1 m2 m3 m4
-                    // 1: N  m1 m2 m3 m4
-                    // 2: N  N  m2 m3 m4
-                    // 3: N  N  N  m3 m4
-                    // 4: N  N  N  N  m4 
+                    // ply 0: m0 m1 m2 m3 m4
+                    // ply 1: N  m1 m2 m3 m4
+                    // ply 2: N  N  m2 m3 m4
+                    // ply 3: N  N  N  m3 m4
+                    // ply 4: N  N  N  N  m4 
                     
-                    // and each ply copies the moves at the next ply 
-                    ctx->data.pv_table[ply][ply] = m;
-                    for (int i = ply + 1; i < ctx->data.pv_table_len[ply + 1]; ++i) {
-                        ctx->data.pv_table[ply][i] = ctx->data.pv_table[ply + 1][i];
+                    if (PVnode) {
+                        ctx->data.pv_table[ply][ply] = m;
+                        for (int i = ply + 1; i < ctx->data.pv_table_len[ply + 1]; ++i) {
+                            ctx->data.pv_table[ply][i] = ctx->data.pv_table[ply + 1][i];
+                        }
+                        ctx->data.pv_table_len[ply] = ctx->data.pv_table_len[ply + 1];
                     }
-                    ctx->data.pv_table_len[ply] = ctx->data.pv_table_len[ply + 1];
 
                     // Rank history moves
-                    if (m.flags() == MoveFlags::QUIET) ctx->data.history_moves[m.from()][m.to()] += depth;
+                    if (isQuiet(m)) ctx->data.history_moves[m.from()][m.to()] += depth;
 
                     node_.flags = FLAG_EXACT;
-                    node_.best = m;
+
+                    // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take, which means
+                    // that this move will not be taken, though it is useful to keep track of these moves
+                    if (best_score >= Bbeta) {
+                        if (isQuiet(m)) {
+                            ctx->data.killer_moves[ply][1] = ctx->data.killer_moves[ply][0];
+                            ctx->data.killer_moves[ply][0] = m;
+                        }
+
+                        node_.flags = FLAG_BETA;
+                        node_.score = best_score;
+
+                        ctx->table->push_position(node_);
+
+                        return best_score;
+                    }
                 }
-            }
-
-            // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take, which means
-            // that this move will not be taken, though it is useful to keep track of these moves
-            if (best_score >= Bbeta) {
-                if (m.flags() != MoveFlags::CAPTURE) {
-                    ctx->data.killer_moves[1][ply] = ctx->data.killer_moves[0][ply];
-                    ctx->data.killer_moves[0][ply] = m;
-                }
-
-                node_.flags = FLAG_BETA;
-                node_.score = best_score;
-
-                ctx->table->push_position(node_);
-
-                return Bbeta;
             }
 
             if ((ctx->stop) ||
@@ -329,7 +378,7 @@ namespace Search {
         if (mL.size() == 0) {
             if (ctx->board.in_check<C>()) {
                 // If checkmate
-                return SHRT_MIN + ply;
+                return mated_in(ply);
             }
             else {
                 // If stalemate
@@ -341,7 +390,7 @@ namespace Search {
         ctx->table->push_position(node_);
 
         // Fail Low Node - No better move was found
-        return Aalpha;
+        return best_score;
     }
 
     template <Color C>
@@ -352,15 +401,23 @@ namespace Search {
         int current_depth = 0;
         int as_window = 50;
         Move bestMove = NO_MOVE;
+        SearchStack ss[MAX_DEPTH];
 
         for (; current_depth <= max_depth; ++current_depth) {
             // Set the context's search depth to the current depth in the iterative deepening process
             ctx->info.depth = current_depth;
+
+            for (int i = 0; i < MAX_DEPTH; ++i) {
+                (ss + i)->ply = i;
+                (ss + i)->tt_hit = false;
+                (ss + i)->static_eval = 0;
+                (ss + i)->move_count = 0;
+                (ss + i)->pv = nullptr;
+            }
             
-            auto last_search_nodes = ctx->info.nodes;
             auto start_current_search = GetTimeMS();
 
-            int score = negamax<C>(ctx, alpha, beta, current_depth);
+            int score = negamax<C, true>(ctx, ss, alpha, beta, current_depth);
 
             auto end_current_search = GetTimeMS();
 
@@ -381,7 +438,7 @@ namespace Search {
                 break;
             }
             
-            uint32_t nps = (float)(ctx->info.nodes - last_search_nodes) / ((end_current_search - start_current_search) / 1000.0f);   
+            uint32_t nps = (float)(ctx->info.nodes) / ((end_current_search - start_current_search) / 1000.0f);   
 
             std::cout << "info depth " << current_depth << " score cp " << score * (C == WHITE ? 1 : -1) << " nodes " << ctx->info.nodes << " nps " << nps << " tthits " << ctx->table->hits << " qnodes " << ctx->q_nodes << " BF " << std::pow(ctx->info.nodes, 1.0f / current_depth) << " pvlen " << ctx->data.pv_table_len[0] << " pv ";
             for (int j = 0; j < ctx->data.pv_table_len[0]; j++) {

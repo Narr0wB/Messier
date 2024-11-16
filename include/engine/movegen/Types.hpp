@@ -217,6 +217,10 @@ public:
 
 #define NO_MOVE Move(0)
 
+inline bool isCapture(Move m) { return (m.flags() & MoveFlags::CAPTURE); };
+inline bool isPromotion(Move m) { return (m.flags() & MoveFlags::PROMOTIONS); };
+inline bool isQuiet(Move m) { return (!isCapture(m) && !isPromotion(m)); };
+
 //Adds, to the move pointer all moves of the form (from, s), where s is a square in the bitboard to
 template<MoveFlags F = QUIET>
 inline Move *make(Square from, Bitboard to, Move *list) {

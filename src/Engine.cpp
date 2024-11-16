@@ -31,10 +31,10 @@ namespace Engine {
 		
 		// If we are given only how much time is left then we define an arbitrary move time
 		else if (info.timeset) {
-			const float time_per_move = 0.05 * time + inc * 0.85;
+			const float time_per_move = 0.03 * time + inc * 0.75;
 			// Never use more than 80% of the available time for a move
 			const float max_time_bound = 0.8f * time;
-			const float max_time = std::min(1.0f * time_per_move, max_time_bound);
+			const float max_time = std::min(time_per_move, max_time_bound);
 
 			info.search_end_time = info.search_start_time + (uint64_t) max_time;
 		}
@@ -87,6 +87,7 @@ namespace Engine {
 			}
 
 			if (command.find("moves") != std::string::npos) {
+                LOG_INFO("ECHOING MOVES: {}", command);
 				int string_start = command.find("moves") + 6;
 
 				if (string_start > command.length()) return;

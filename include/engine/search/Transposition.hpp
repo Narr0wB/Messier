@@ -16,8 +16,8 @@
 typedef uint8_t TranspositionFlags;
 
 struct Transposition {
-    Transposition(TranspositionFlags f, uint64_t h, int8_t d, int sc, Move b) : 
-    flags(f), hash(h), depth(d), score(sc), best(b) {};
+    Transposition(TranspositionFlags f, uint64_t h, int8_t d, int sc, Move m) : 
+    flags(f), hash(h), depth(d), score(sc), move(m) {};
     
     Transposition() {};
 
@@ -25,7 +25,7 @@ struct Transposition {
     uint64_t hash;
     int8_t depth;
     int score;
-    Move best;
+    Move move;
 };
 
 #define NO_HASH_ENTRY Transposition { FLAG_EMPTY, 0, 0, NO_SCORE, NO_MOVE }
@@ -76,7 +76,7 @@ class TranspositionTable {
         void clear();
 
         void push_position(Transposition t);
-        Transposition probe_hash(uint64_t hash, int alpha, int beta, int depth);
+        Transposition probe_hash(uint64_t hash);
 };
 
 #endif

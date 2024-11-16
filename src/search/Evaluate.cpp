@@ -10,8 +10,6 @@ int Evaluate(Position& position) {
         Bitboard white_piece_bb = position.bitboard_of(make_piece(WHITE, (PieceType)p));
         Bitboard black_piece_bb = position.bitboard_of(make_piece(BLACK, (PieceType)p));
 
-        // TODO: add position dependent scores (e.g. having bishops and knights move towards the centre increases scores)
-
         while (white_piece_bb)
         {   
             Square piece_sq = pop_lsb(&white_piece_bb);

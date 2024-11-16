@@ -24,24 +24,37 @@ namespace Search {
         return mvv_lva_lookup[attacker][victim];
     }
    
-    int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply) {
+    int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply, Move ttmove) {
         // Score the move from the previous iterative search pv higher 
         if (m_ == ctx->data.pv_table[0][ply]) {
             return MAX_MOVE_SCORE;
         }
 
-        if (m_.flags() == MoveFlags::CAPTURE) {
+        else if (m_ == ttmove) {
+            return MAX_MOVE_SCORE - 1000; 
+        }
+
+        else if (m_.flags() == MoveFlags::CAPTURE) {
             return mvv_lva(m_, ctx->board) + 10000;
         }
 
-        if (m_ == ctx->data.killer_moves[0][ply]) {
+        else if (m_ == ctx->data.killer_moves[ply][0]) {
             return 9000;
         }
-        if (m_ == ctx->data.killer_moves[1][ply]) {
+
+        else if (m_ == ctx->data.killer_moves[ply][1]) {
             return 8000;
         }
 
         return ctx->data.history_moves[m_.from()][m_.to()];
+    }
+
+    int mate_in(int ply) {
+        return MATE_SCORE - ply;
+    }
+
+    int mated_in(int ply) {
+        return -MATE_SCORE + ply;
     }
 
 } // namespace Search
