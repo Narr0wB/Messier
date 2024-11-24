@@ -12,12 +12,13 @@
 #define FLAG_BETA 3
 
 #define NO_SCORE 0 
+#define NO_EVAL 0 
 
 typedef uint8_t TranspositionFlags;
 
 struct Transposition {
-    Transposition(TranspositionFlags f, uint64_t h, int8_t d, int sc, Move m) : 
-    flags(f), hash(h), depth(d), score(sc), move(m) {};
+    Transposition(TranspositionFlags f, uint64_t h, int8_t d, int sc, int e, Move m) : 
+    flags(f), hash(h), depth(d), score(sc), move(m), eval(e) {};
     
     Transposition() {};
 
@@ -25,10 +26,11 @@ struct Transposition {
     uint64_t hash;
     int8_t depth;
     int score;
+    int eval;
     Move move;
 };
 
-#define NO_HASH_ENTRY Transposition { FLAG_EMPTY, 0, 0, NO_SCORE, NO_MOVE }
+#define NO_HASH_ENTRY Transposition { FLAG_EMPTY, 0, 0, NO_EVAL, NO_SCORE, NO_MOVE }
 
 class TranspositionTable {
     private:

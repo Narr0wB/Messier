@@ -15,7 +15,7 @@
 #define INF 5000000
 
 #define MAX_DEPTH 20
-#define MAX_TABLE MAX_DEPTH
+#define MAX_TABLE MAX_DEPTH + 1
 
 #define MATE_SCORE UINT16_MAX 
 
@@ -47,7 +47,6 @@ struct SearchStack {
     int ply;
     int static_eval;
     int move_count;
-    Move* pv;
     bool tt_hit;
 };
 
@@ -135,8 +134,26 @@ namespace Search {
             (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
             return 0;
         }
+        
+        Transposition tte = ctx->table->probe_hash(ctx->board.get_hash());
+        bool tt_hit = tte.flags != FLAG_EMPTY;
+        Move tt_move = tte.move;
+        int tt_score = tte.score;
+        uint8_t tt_bound = tte.flags;
+        int8_t tt_depth = tte.depth;
 
-        int static_eval = Evaluate(ctx->board) * (C == WHITE ? 1 : -1); 
+        // If we are not in a pv node, and we got a useful score from the TT, return early
+        // NOTE: we do not check if the tte depth is greater (or equal) than the current depth because in quiescence any depth IS greater or equal than 0 
+        if (!PVnode 
+            && tt_hit 
+            && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
+            ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
+            ||   (tt_bound == FLAG_EXACT))
+        ) {
+            return tt_score;
+        }
+
+        int static_eval = corrected_eval<C>(ctx->board); 
         int score = static_eval;
         int best_score = -INF;
         int ply = ctx->info.quiescence_depth - depth;
@@ -157,6 +174,8 @@ namespace Search {
             return best_score;
         }
 
+        Transposition current_node = {FLAG_ALPHA, ctx->board.get_hash(), 0, best_score, static_eval, NO_MOVE}; 
+
         MoveList<C> mL(ctx->board);
         order_move_list<C>(mL, ctx, ply, NO_MOVE);
 
@@ -175,11 +194,16 @@ namespace Search {
 
             if (score > best_score) {
                 best_score = score;
+                current_node.score = best_score;
+                current_node.move = m;
 
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
 
+                    current_node.flags = FLAG_EXACT;
+
                     if (best_score >= Bbeta) {
+                        current_node.flags = FLAG_BETA;
                         return best_score;
                     }
                 }
@@ -216,7 +240,6 @@ namespace Search {
             return Quiescence<C, PVnode>(ctx, Aalpha, Bbeta, ctx->info.quiescence_depth);
         }
 
-        // If we are not in a PVnode, make sure the window is reduced (i.e. alpha is equal to beta + 1)
         assert(PVnode || (Aalpha == Bbeta - 1));
         assert(0 < depth && depth < MAX_DEPTH + 1);
 
@@ -249,7 +272,7 @@ namespace Search {
                 return alpha;
         }
         
-        // Futility pruning, if at frontier nodes we realize that our position, even after adding the value of a queen, is still under alpha then 
+        // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a queen, is still under alpha then 
         // prune this node by returning the static evaluation  
         // if (depth == 1 && !ctx->board.in_check<C>() && static_eval + piece_value[QUEEN] < Aalpha) {
         //     return static_eval + piece_value[QUEEN];   
@@ -261,9 +284,10 @@ namespace Search {
         int tt_score = tte.score;
         uint8_t tt_bound = tte.flags;
         int8_t tt_depth = tte.depth;
+
         // If we are not in a pv node, and we got a useful score from the TT, return early
         if (!PVnode 
-            && tt_bound != FLAG_EMPTY
+            && tt_hit 
             && tt_depth >= depth
             && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
             ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
@@ -276,20 +300,20 @@ namespace Search {
             static_eval = ss->static_eval = 0;
         }
         else if (tt_hit) {
-            // TODO: Add eval into the TE object
-            static_eval = ss->static_eval = tt_score; 
+            static_eval = ss->static_eval = tte.eval; 
         }
         else {
-            static_eval = ss->static_eval = Evaluate(ctx->board); 
+            static_eval = ss->static_eval = corrected_eval<C>(ctx->board); 
         }
 
-        Transposition node_ = Transposition{FLAG_ALPHA, ctx->board.get_hash(), (int8_t)depth, NO_SCORE, NO_MOVE};
+        Transposition node_ = Transposition{FLAG_ALPHA, ctx->board.get_hash(), (int8_t)depth, static_eval, NO_SCORE, NO_MOVE};
         
         // Generate moves and order them
         MoveList<C> mL(ctx->board);
         order_move_list(mL, ctx, ply, tt_move);
 
         for (const Move& m : mL) {
+            
             move_count++;
             ctx->board.play<C>(m);
             
@@ -315,7 +339,7 @@ namespace Search {
                 score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
             }
 
-            if (PVnode && (move_count == 1 || score > Aalpha)) {
+            if (PVnode && (move_count == 1 || score > Aalpha && (ply == 0 || score < Bbeta))) {
                 score = -negamax<~C, true>(ctx, ss + 1, -Bbeta, -Aalpha, depth - 1);
             }
 
@@ -324,6 +348,7 @@ namespace Search {
             if (score > best_score) {
                 best_score = score;
                 node_.move = m;
+                node_.score = best_score;
 
                 // We have found a move that is better than the current alpha
                 if (best_score > Aalpha) {
@@ -359,8 +384,6 @@ namespace Search {
                         }
 
                         node_.flags = FLAG_BETA;
-                        node_.score = best_score;
-
                         ctx->table->push_position(node_);
 
                         return best_score;
@@ -386,7 +409,6 @@ namespace Search {
             }
         } 
 
-        node_.score = best_score;
         ctx->table->push_position(node_);
 
         // Fail Low Node - No better move was found
@@ -398,7 +420,7 @@ namespace Search {
         int alpha = -INF;
         int beta = INF;
         int max_depth = ctx->info.depth;
-        int current_depth = 0;
+        int current_depth = 1;
         int as_window = 50;
         Move bestMove = NO_MOVE;
         SearchStack ss[MAX_DEPTH];
@@ -412,7 +434,6 @@ namespace Search {
                 (ss + i)->tt_hit = false;
                 (ss + i)->static_eval = 0;
                 (ss + i)->move_count = 0;
-                (ss + i)->pv = nullptr;
             }
             
             auto start_current_search = GetTimeMS();

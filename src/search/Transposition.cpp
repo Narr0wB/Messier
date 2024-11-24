@@ -32,33 +32,13 @@ void TranspositionTable::push_position(Transposition t)
 
 Transposition TranspositionTable::probe_hash(uint64_t hash) {
     Transposition position = m_DataArray[hash % m_Capacity];
-    hits++;
 
-    // // TODO: Since implememting fail soft search, must investigate the effect of fail-hard TT lookup (current)
-    // if (position.hash == hash) {
-    //     if (position.depth >= depth) {
-    //         hits++;
-    //         
-    //         // if (position.flags != FLAG_EMPTY)
-    //         //     return position;
-    //
-    //         if (position.flags == FLAG_EXACT) {
-    //             return position;
-    //         }
-    //
-    //         if (position.flags == FLAG_ALPHA && position.score <= alpha) {
-    //             position.score = alpha;
-    //             return position;
-    //         }
-    //
-    //         if (position.flags == FLAG_BETA && position.score >= beta) {
-    //             position.score = beta;
-    //             return position;
-    //         }
-    //     }
-    // }
+    if (position.hash == hash) {
+        hits++;
+        return position;
+    }
 
-    return position;
+    return NO_HASH_ENTRY;
 }
 
 void TranspositionTable::clear() {
