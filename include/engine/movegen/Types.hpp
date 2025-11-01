@@ -175,23 +175,27 @@ enum MoveFlags : int {
 
 class Move {
 private:
-	//The internal representation of the move
+	// The internal representation of the move
 	uint16_t move;
+
+	// The score of the move during move ordering
+	uint16_t score;
+
 public:
 	//Defaults to a null move (a1a1)
-	inline Move() : move(0) {}
+	inline Move() : move(0), score(0) {}
 	
-	inline Move(uint16_t m) { move = m; }
+	inline Move(uint16_t m) : score(0) { move = m; }
 
-	inline Move(Square from, Square to) : move(0) {
+	inline Move(Square from, Square to) : move(0), score(0) {
 		move = (from << 6) | to;
 	}
 
-	inline Move(Square from, Square to, MoveFlags flags) : move(0) {
+	inline Move(Square from, Square to, MoveFlags flags) : move(0), score(0) {
 		move = (flags << 12) | (from << 6) | to;
 	}
 
-	Move(const std::string& move) {
+	Move(const std::string& move) : score(0) {
 		this->move = (create_square(File(move[0] - 'a'), Rank(move[1] - '1')) << 6) |
 			create_square(File(move[2] - 'a'), Rank(move[3] - '1'));
 	}
@@ -199,6 +203,8 @@ public:
 	Move(const Move& m) : move(m.move) {};
 	Move(Move& m) : move(m.move) {}
 
+	inline uint16_t get_score() const { return score; }
+	inline void set_score(uint16_t s) { score = s; }
 	inline Square to() const { return Square(move & 0x3f); }
 	inline Square from() const { return Square((move >> 6) & 0x3f); }
 	inline int to_from() const { return move & 0xfff; }

@@ -7,7 +7,9 @@
 #include <engine/movegen/Position.hpp>
 #include <engine/search/Search.hpp>
 #include <engine/search/Thread.hpp>
+#include <engine/movegen/Move.hpp>
 #include <engine/Log.hpp>
+#include <engine/Misc.hpp>
 
 #define START_POSITION "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR/ w KQkq"
 #define DEBUG_POSITION "rnb2b2/2p1k1p1/1p1q4/3p4/P7/8/P4PPP/RNB1KBNR w KQ - 0 9"

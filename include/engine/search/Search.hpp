@@ -6,69 +6,19 @@
 #include <iostream>
 
 #include <engine/movegen/Position.hpp>
-#include <engine/Misc.hpp>
 #include <engine/movegen/Types.hpp>
-#include <engine/search/Transposition.hpp>
 #include <engine/search/Evaluate.hpp>
+#include <engine/search/SearchTypes.hpp>
 #include <engine/Log.hpp>
+#include <engine/Misc.hpp>
+#include <engine/movegen/Move.hpp>
 
 #define INF 5000000
 
-#define MAX_DEPTH 20
-#define MAX_TABLE MAX_DEPTH + 1
-
-#define MATE_SCORE UINT16_MAX 
-
-struct SearchInfo {
-    uint64_t search_start_time = 0;
-    uint64_t search_end_time   = 0;
-
-    bool timeset = false;
-    bool movetimeset = false;
-    bool nodeset = false;
-
-    uint64_t nodeslimit;
-    uint64_t nodes;
-    uint32_t movestogo;
-
-    int depth;
-    int quiescence_depth;
-};
-
-struct SearchData {
-    Move pv_table[MAX_TABLE][MAX_TABLE];
-    int pv_table_len[MAX_TABLE];
-
-    Move killer_moves[MAX_TABLE][2];
-    int history_moves[64][64];
-};
-
-struct SearchStack {
-    int ply;
-    int static_eval;
-    int move_count;
-    bool tt_hit;
-};
-
-struct SearchContext {
-    std::atomic<bool> stop;
-
-    Position board;
-    std::shared_ptr<TranspositionTable> table;
-
-    SearchInfo info;
-    SearchData data;
-
-    // debug
-    uint32_t reduced_nodes = 0;
-    uint64_t q_nodes = 0;
-};
-
 namespace Search {
-    int mvv_lva(const Move &m_, const Position &p_);
-
     template <Color Us>
-    int SEE(Position& pos, Square to) {
+    int SEE(Position& pos, Square to) 
+    {
         int value = 0;
         Bitboard occupied = pos.all_pieces<WHITE>() | pos.all_pieces<BLACK>();
 
@@ -96,9 +46,6 @@ namespace Search {
         return value;
     }
 
-    #define MAX_MOVE_SCORE 1000000
-    int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move);
-
     // Order moves using context
     template <Color Us>
     struct move_sorting_criterion {
@@ -108,7 +55,8 @@ namespace Search {
 
         move_sorting_criterion(const std::shared_ptr<SearchContext>& c, int p, Move m) : _ctx(c), _ply(p), _ttmove(m) {}; 
 
-        bool operator() (const Move& a, const Move& b) {
+        bool operator() (const Move& a, const Move& b) 
+        {
             // Since the std::stable_sort function actually sorts elements in a list in ascending order by checking if a < b is true,  
             // we have to flip the comparison in order to have a list ordered in descending order 
             return score_move(a, _ctx, _ply, _ttmove) > score_move(b, _ctx, _ply, _ttmove);
@@ -116,7 +64,8 @@ namespace Search {
     };
 
     template <Color Us>
-    void order_move_list(MoveList<Us>& m, const std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move) {
+    void order_move_list(MoveList<Us>& m, const std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move) 
+    {
         // This function sorts the movelist in descending order
         std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, ply, tt_move));
     }
@@ -125,13 +74,15 @@ namespace Search {
     int mated_in(int ply);
 
     template <Color C, bool PVnode>
-    int Quiescence(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth) {
+    int Quiescence(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth) 
+    {
         ctx->info.nodes++;
-        ctx->q_nodes++;
+        ctx->info.qnodes++;
 
         if ((ctx->stop) ||
             (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
-            (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
+            (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) 
+        {
             return 0;
         }
         
@@ -148,8 +99,8 @@ namespace Search {
             && tt_hit 
             && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
             ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
-            ||   (tt_bound == FLAG_EXACT))
-        ) {
+            ||   (tt_bound == FLAG_EXACT))) 
+        {
             return tt_score;
         }
 
@@ -158,26 +109,18 @@ namespace Search {
         int best_score = -INF;
         int ply = ctx->info.quiescence_depth - depth;
 
-        if (score >= Bbeta) {
-            return score;
-        }
+        if (score >= Bbeta) return score;
 
         if (score > best_score) {
             best_score = score;
-
-            if (best_score > Aalpha) {
-                Aalpha = best_score;
-            }
+            if (best_score > Aalpha) Aalpha = best_score;
         }
         
-        if (depth == 0) {
-            return best_score;
-        }
+        if (depth == 0) return best_score;
 
         Transposition current_node = {FLAG_ALPHA, ctx->board.get_hash(), 0, best_score, static_eval, NO_MOVE}; 
-
-        MoveList<C> mL(ctx->board);
-        order_move_list<C>(mL, ctx, ply, NO_MOVE);
+        MoveList<C> mL(ctx->board, ctx, ply, tt_move);
+        order_move_list(mL, ctx, ply, tt_move);
 
         for (const Move& m : mL) {
             if (isQuiet(m)) continue;
@@ -211,21 +154,18 @@ namespace Search {
         }
 
         if (mL.size() == 0) {
-            if (ctx->board.in_check<C>()) {
-                // If checkmate
+            if (ctx->board.in_check<C>()) 
                 return mated_in(ply);
-            }
-            else {
-                // If stalemate
+            else 
                 return 0;
-            }
         }
 
         return best_score;
     }
 
     template <Color C, bool PVnode>
-    int negamax(std::shared_ptr<SearchContext>& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth) {
+    int negamax(std::shared_ptr<SearchContext>& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth) 
+    {
         ctx->info.nodes++;
 
         int ply = ss->ply;
@@ -246,7 +186,8 @@ namespace Search {
         // If out of time or hit any other constraints then exit the search
         if ((ctx->stop) ||
             (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
-            (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
+            (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) 
+        {
             return 0;
         }
 
@@ -291,29 +232,25 @@ namespace Search {
             && tt_depth >= depth
             && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
             ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
-            ||   (tt_bound == FLAG_EXACT))
-        ) {
+            ||   (tt_bound == FLAG_EXACT))) 
+        {
             return tt_score;
         }
         
-        if (ctx->board.in_check<C>()) {
+        if (ctx->board.in_check<C>()) 
             static_eval = ss->static_eval = 0;
-        }
-        else if (tt_hit) {
+        else if (tt_hit) 
             static_eval = ss->static_eval = tte.eval; 
-        }
-        else {
+        else 
             static_eval = ss->static_eval = corrected_eval<C>(ctx->board); 
-        }
 
         Transposition node_ = Transposition{FLAG_ALPHA, ctx->board.get_hash(), (int8_t)depth, static_eval, NO_SCORE, NO_MOVE};
         
         // Generate moves and order them
-        MoveList<C> mL(ctx->board);
+        MoveList<C> mL(ctx->board, ctx, ply, tt_move);
         order_move_list(mL, ctx, ply, tt_move);
 
         for (const Move& m : mL) {
-            
             move_count++;
             ctx->board.play<C>(m);
             
@@ -322,10 +259,11 @@ namespace Search {
                 && move_count > 3 
                 && isQuiet(m) 
                 && (!ctx->board.in_check<C>() && !ctx->board.in_check<~C>())
-                && !PVnode) {
+                && !PVnode) 
+            {
                 // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
-                int reduction = std::max(1, depth - (move_count - 2) - 1);
-                score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, reduction);
+                int reduced = std::max(1, depth - (move_count - 2) - 1);
+                score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, reduced);
 
                 if (score > Aalpha) {
                     score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
@@ -355,7 +293,6 @@ namespace Search {
                     Aalpha = best_score;
                     
                     // Triangular transposition tables
-                    // 
                     // ply 0: m0 m1 m2 m3 m4
                     // ply 1: N  m1 m2 m3 m4
                     // ply 2: N  N  m2 m3 m4
@@ -371,7 +308,8 @@ namespace Search {
                     }
 
                     // Rank history moves
-                    if (isQuiet(m)) ctx->data.history_moves[m.from()][m.to()] += depth;
+                    if (isQuiet(m)) 
+                        ctx->data.history_moves[m.from()][m.to()] += depth;
 
                     node_.flags = FLAG_EXACT;
 
@@ -393,7 +331,8 @@ namespace Search {
 
             if ((ctx->stop) ||
                 (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
-                (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) {
+                (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) 
+            {
                 return 0;
             }
         }
@@ -415,42 +354,78 @@ namespace Search {
         return best_score;
     }
 
+    template<Color C>
+    int AspirationWindowSearch(std::shared_ptr<SearchContext>& ctx, SearchStack* ss, int score_avg, int depth) 
+    {
+        int root_depth = depth;
+        int alpha = -INF;
+        int beta = +INF;
+        int score = 0;
+        int delta = 12;
+
+        for (int i = 0; i < MAX_DEPTH; ++i) {
+            (ss + i)->ply = i;
+            (ss + i)->tt_hit = false;
+            (ss + i)->static_eval = 0;
+            (ss + i)->move_count = 0;
+        }
+
+        if (depth >= 3) {
+            alpha = std::max(-INF, score_avg - delta);
+            beta = std::min(INF, score_avg + delta);
+        }
+
+        while (true) {
+            score = negamax<C, true>(ctx, ss, alpha, beta, depth);
+            
+            if ((ctx->stop) ||
+                (ctx->info.timeset && GetTimeMS() >= ctx->info.search_end_time) || 
+                (ctx->info.nodeset && ctx->info.nodes > ctx->info.nodeslimit)) 
+            {
+                break;
+            }
+            
+            if (score <= alpha) {
+                beta = (alpha + beta) / 2;
+                alpha = std::max(-INF, score - delta);
+                depth = root_depth;
+            }
+            else if (score >= beta) {
+                beta = std::min(INF, score + delta);
+                depth = std::max(depth - 1, root_depth - 5); 
+            }
+            else {
+                break;
+            }
+
+            delta *= 1.44;
+        }
+
+        return score;
+    }
+
     template <Color C>
-    void Search(std::shared_ptr<SearchContext> ctx) {
+    void Search(std::shared_ptr<SearchContext> ctx) 
+    {
         int alpha = -INF;
         int beta = INF;
         int max_depth = ctx->info.depth;
         int current_depth = 1;
-        int as_window = 50;
-        Move bestMove = NO_MOVE;
-        SearchStack ss[MAX_DEPTH];
+        int score_avg = 0;
+
+        Move best_move = NO_MOVE;
+        SearchStack ss[MAX_DEPTH + 1];
 
         for (; current_depth <= max_depth; ++current_depth) {
             // Set the context's search depth to the current depth in the iterative deepening process
             ctx->info.depth = current_depth;
-
-            for (int i = 0; i < MAX_DEPTH; ++i) {
-                (ss + i)->ply = i;
-                (ss + i)->tt_hit = false;
-                (ss + i)->static_eval = 0;
-                (ss + i)->move_count = 0;
-            }
             
             auto start_current_search = GetTimeMS();
 
-            int score = negamax<C, true>(ctx, ss, alpha, beta, current_depth);
+            int score = AspirationWindowSearch<C>(ctx, ss, score_avg, current_depth);
+            score_avg = score_avg == 0 ? score : (score_avg + score) / 2;
 
             auto end_current_search = GetTimeMS();
-
-            // If we fall out of our aspiration window then reset the alpha and beta parameters;
-            // if ((score <= alpha) || (score >= beta)) {
-            //     alpha = -INF;
-            //     beta = INF;
-            // } else {
-            //     // Update aspiration window
-            //     alpha = score - as_window;
-            //     beta = score + as_window; 
-            // }
 
             // If we are out of time or over the limit for nodes (if there is one) then break
             if ((ctx->stop) ||
@@ -459,18 +434,18 @@ namespace Search {
                 break;
             }
             
-            uint32_t nps = (float)(ctx->info.nodes) / ((end_current_search - start_current_search) / 1000.0f);   
+            uint32_t nps = (float)(ctx->info.nodes + ctx->info.qnodes) / ((end_current_search - start_current_search) / 1000.0f);   
 
-            std::cout << "info depth " << current_depth << " score cp " << score * (C == WHITE ? 1 : -1) << " nodes " << ctx->info.nodes << " nps " << nps << " tthits " << ctx->table->hits << " qnodes " << ctx->q_nodes << " BF " << std::pow(ctx->info.nodes, 1.0f / current_depth) << " pvlen " << ctx->data.pv_table_len[0] << " pv ";
+            std::cout << "info depth " << current_depth << " score cp " << score * (C == WHITE ? 1 : -1) << " nodes " << ctx->info.nodes << " nps " << nps << " tthits " << ctx->table->hits << " qnodes " << ctx->info.qnodes << " BF " << std::pow(ctx->info.nodes, 1.0f / current_depth) << " pvlen " << ctx->data.pv_table_len[0] << " pv ";
             for (int j = 0; j < ctx->data.pv_table_len[0]; j++) {
                 std::cout << ctx->data.pv_table[0][j] << " ";
             }
             std::cout << std::endl;
 
-            bestMove = ctx->data.pv_table[0][0];
+            best_move = ctx->data.pv_table[0][0];
 
             ctx->table->hits = 0;
-            ctx->q_nodes = 0;
+            ctx->info.qnodes = 0;
             ctx->info.nodes = 0;
         }
 
@@ -478,7 +453,7 @@ namespace Search {
 
         // Print the best move found
         std::cout << "bestmove ";
-        std::cout << bestMove;
+        std::cout << best_move;
         std::cout << std::endl;
     }
 } // namespace Search

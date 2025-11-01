@@ -15,7 +15,8 @@
 
 */
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) 
+{
     Log::Init();
 
 	Engine::Engine app(argc, argv, true);

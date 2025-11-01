@@ -30,7 +30,8 @@ void TranspositionTable::push_position(Transposition t)
     }
 }
 
-Transposition TranspositionTable::probe_hash(uint64_t hash) {
+Transposition TranspositionTable::probe_hash(uint64_t hash) 
+{
     Transposition position = m_DataArray[hash % m_Capacity];
 
     if (position.hash == hash) {
@@ -41,14 +42,16 @@ Transposition TranspositionTable::probe_hash(uint64_t hash) {
     return NO_HASH_ENTRY;
 }
 
-void TranspositionTable::clear() {
+void TranspositionTable::clear() 
+{
     if (m_DataArray != NULL) {
         std::memset(m_DataArray, 0, m_Capacity * sizeof(Transposition));
     }
 }
 
 // WARNING: Calling this function will delete all the transpositions stored inside of the table!
-void TranspositionTable::realloc(size_t numberOfTranspositions) {
+void TranspositionTable::realloc(size_t numberOfTranspositions) 
+{
     delete m_DataArray;
 
     m_DataArray = new Transposition[numberOfTranspositions];

@@ -1,12 +1,12 @@
 
 #include <engine/Engine.hpp>
-#include <engine/Misc.hpp>
 
 // static std::map<Engine::u16, std::unique_ptr<Engine::Engine>> active_instances;
 // #define MAX_INSTANCES 10
 
 namespace Engine {
-	void Optimize(SearchInfo& info, int time, int inc) {
+	void Optimize(SearchInfo& info, int time, int inc) 
+	{
 		if (time < 0) time = 5000;
 
 		// Consider the overhead lost during uci communication and subtract it to the avilable time
@@ -40,7 +40,8 @@ namespace Engine {
 		}
 	}
 
-	void Engine::NewGame() {
+	void Engine::NewGame() 
+	{
 		Position::set(START_POSITION, m_Position);
 
 		m_Position.reset();
@@ -48,7 +49,8 @@ namespace Engine {
 		m_Table->clear();
 	}
 
-	void Engine::UCICommandLoop() {
+	void Engine::UCICommandLoop() 
+	{
 		std::string command;
 		
 		while (!m_ShouldClose) {
@@ -65,8 +67,8 @@ namespace Engine {
 		}
 	}
 
-	void Engine::UCIParseCommand(std::string command) {
-
+	void Engine::UCIParseCommand(std::string command) 
+	{
 		std::vector<std::string> tokens = tokenize(command, ' ');
 
 		if (tokens[0] == "position") {

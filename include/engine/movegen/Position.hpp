@@ -1359,40 +1359,4 @@ inline Move* Position::generate_legals_for(Square sq, Move* list)
 	return list;
 }
 
-//A convenience class for interfacing with legal moves, rather than using the low-level
-//generate_legals() function directly. It can be iterated over.
-template<Color Us>
-class MoveList {
-	private:
-		Move list[218];
-		Move *last;
 
-	public:
-		explicit MoveList(Position& p) : last(p.generate_legals<Us>(list)) {}
-		explicit MoveList(Position& p, Square sq) : last(p.generate_legals_for<Us>(sq, list)) {}
-
-		inline Move& operator[](size_t idx) { return list[idx]; }
-
-		Move* begin() { return list; }
-		Move* end() { return last; }
-		size_t size() const { return last - list; }
-		Move find(uint16_t to_from, uint8_t promotion = 0) {
-			for (int i = 0; i < size(); ++i) {
-
-				// LOG_INFO("{} {} {} {}", list[i], list[i].flags(), promotion, ((list[i].flags() & (promotion)) == promotion));
-
-				if (promotion) {
-					if (list[i].to_from() == to_from && ((list[i].flags() & (promotion)) == promotion)) {
-						return list[i];
-					}
-				}
-				else {
-					if (list[i].to_from() == to_from) {
-						return list[i];
-					}
-				}
-			}
-
-			return Move(0);
-		}
-};

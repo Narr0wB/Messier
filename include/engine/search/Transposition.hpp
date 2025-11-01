@@ -61,7 +61,8 @@ class TranspositionTable {
         hits(tt.hits) {}
 
         // Move assignment operator
-        inline TranspositionTable& operator=(TranspositionTable&& tt) {
+        inline TranspositionTable& operator=(TranspositionTable&& tt) 
+        {
             m_DataArray = (tt.m_DataArray);
             m_Size = (tt.m_Size);
             hits = (tt.hits);

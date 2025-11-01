@@ -4,7 +4,7 @@
 
 #include <engine/movegen/Position.hpp>
 #include <engine/movegen/Types.hpp>
-
+#include <engine/search/SearchTypes.hpp>
 #include <engine/search/Transposition.hpp>
 #include <engine/Log.hpp>
 
@@ -16,5 +16,10 @@ int Evaluate(Position& position);
 // Return a corrected evaluation relative to the side
 template <Color Us>
 int corrected_eval(Position& position) { return Evaluate(position) * (Us == WHITE ? 1 : -1); };
+
+int mvv_lva(const Move &m_, const Position &p_);
+
+#define MAX_MOVE_SCORE 20000
+int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move);
 
 #endif // EVALUATE_H
