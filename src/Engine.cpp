@@ -1,11 +1,40 @@
 
 #include <engine/Engine.hpp>
 
+#include <engine/Log.hpp>
+#include <engine/Misc.hpp>
+
 // static std::map<Engine::u16, std::unique_ptr<Engine::Engine>> active_instances;
 // #define MAX_INSTANCES 10
 
 namespace Engine {
-	void Optimize(SearchInfo& info, int time, int inc) 
+	Engine::Engine(int argc, char** argv, bool debug) : 
+        m_Debug(debug),  
+        m_ShouldClose(false), 
+        m_SearchWorker(),
+	{ 
+		initialise_all_databases();
+    	zobrist::initialise_zobrist_keys();
+
+		// Parse command line arguments
+		for (int i = 1; i < argc; ++i) {
+			std::string arg = argv[i];
+
+			if (arg.find("--uci=") != std::string::npos) {
+				std::string raw_commands = arg.substr(arg.find("=") + 1);
+				std::vector<std::string> commands = tokenize(raw_commands, ';');
+
+				for (auto& cmd : commands) {
+					UCIParseCommand(cmd);
+				}
+			}
+		}
+	};
+
+	/*
+	 * Optimize the time for the next search based on given info 
+	 */
+	void Engine::Optimize(SearchInfo& info, int time, int inc) 
 	{
 		if (time < 0) time = 5000;
 
@@ -13,7 +42,7 @@ namespace Engine {
 		const int overhead = std::min(230, time / 2);
 		time -= overhead;
 
-		// If are given how long should a move take then we use that for our search
+		// If given how long should a move take then we use that for our search
 		if (info.movetimeset) {
 			info.search_end_time = info.search_start_time + time;
 		}
@@ -42,11 +71,8 @@ namespace Engine {
 
 	void Engine::NewGame() 
 	{
-		Position::set(START_POSITION, m_Position);
-
 		m_Position.reset();
-		m_MoveList.clear();
-		m_Table->clear();
+		m_SearchWorker.clear();
 	}
 
 	void Engine::UCICommandLoop() 
@@ -73,20 +99,10 @@ namespace Engine {
 
 		if (tokens[0] == "position") {
             m_SearchContext->table->clear();
+			m_Position.reset();
 
-			if (tokens[1] == "startpos") {
-				m_Position.reset();
-				Position::set(START_POSITION, m_Position);
-			} 
-			else if (tokens[1] == "fen") {
-				m_Position.reset();
-				Position::set(command.substr(command.find("fen") + 4, std::string::npos), m_Position);
-				// position fen rnbqkbnr/ppp2ppp/4p3/8/3PP3/8/PPP3PP/RNBQKBNR b KQkq
-				// position startpos moves g1f3 d7d5 d2d4 c8f5
-				// position startpos moves d2d4 c7c6 e2e4 d8a5 b1d2 g7g6 g1f3 f7f6 f1d3 b7b6 e1g1
-				// position startpos moves e2e4 f7f5 e4f5 g7g6 f5g6 h7h6 g6g7 h6h5 g7h8q
-				// go wtime 4124 btime 4946 movestogo 35
-			}
+			if (tokens[1] == "startpos") { Position::set(START_POSITION, m_Position); } 
+			else if (tokens[1] == "fen") { Position::set(command.substr(command.find("fen") + 4, std::string::npos), m_Position); }
 
 			if (command.find("moves") != std::string::npos) {
                 LOG_INFO("ECHOING MOVES: {}", command);
@@ -128,7 +144,6 @@ namespace Engine {
                     }
                 }
 			}
-			
 		}
 
 		else if (tokens[0] == "printpos") {
@@ -254,7 +269,6 @@ namespace Engine {
 			}
 
 			m_SearchContext->board = m_Position;
-
 			m_SearchContext->info.search_start_time = GetTimeMS();
 			m_SearchContext->info.depth = depth;
 			m_SearchContext->info.quiescence_depth = 3;
@@ -270,16 +284,6 @@ namespace Engine {
             LOG_INFO("depth: {}", m_SearchContext->info.depth); 
             LOG_INFO("timeset: {}", m_SearchContext->info.timeset); 
             LOG_INFO("nodeset: {}", m_SearchContext->info.nodeset); 
-		    // std::cout << "info" << std::endl;
-			// std::cout << "time: " << time << std::endl;
-			// std::cout << "start: " << m_SearchContext->info.search_start_time << std::endl;
-			// std::cout << "stop: " << m_SearchContext->info.search_end_time << std::endl;
-            // std::cout << "movetime: " << m_SearchContext->info.search_end_time - m_SearchContext->info.search_start_time << std::endl; 
-			// std::cout << "depth: " << m_SearchContext->info.depth << std::endl;
-			// std::cout << "timeset: " << m_SearchContext->info.timeset << std::endl;
-			// std::cout << "nodeset: " << m_SearchContext->info.nodeset << std::endl;
-
-			// // position fen 5r2/k6P/7p/2K2n2/PP6/N7/1P2PP2/8 w - - 0 1
 
 			// Clear data before starting a new search
 			m_SearchContext->data = { 0 };

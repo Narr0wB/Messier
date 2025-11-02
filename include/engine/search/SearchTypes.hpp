@@ -2,11 +2,11 @@
 #ifndef SEARCHTYPES_HPP
 #define SEARCHTYPES_HPP
 
-#include <memory>
-
 #include <engine/movegen/Types.hpp>
 #include <engine/movegen/Position.hpp>
 #include <engine/search/Transposition.hpp>
+
+#include <memory>
 
 #define MAX_DEPTH 20
 #define MAX_TABLE MAX_DEPTH + 1
@@ -46,16 +46,10 @@ struct SearchStack {
 };
 
 struct SearchContext {
-    std::atomic<bool> stop;
-
     Position board;
-    std::shared_ptr<TranspositionTable> table;
-
+    TranspositionTable ttable;
     SearchInfo info;
     SearchData data;
-
-    // debug
-    uint32_t reduced_nodes = 0;
 };
 
 #endif // SEARCHTYPES_HPP

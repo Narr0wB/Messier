@@ -1,0 +1,16 @@
+    // info depth 7 score cp -65 nodes 249714 tthits 64170 pv b1c3 c7c6 g1f3 f7f6 d2d4 b7b6 e2e4
+    // info depth 7 score cp -65 nodes 180261 tthits 1878 pvlen 7 pv b1c3 c7c6 g1f3 f7f6 d2d4 g7g6 e2e4
+    //
+    // position startpos
+    // info depth 10 score cp -70 nodes 8398043 tthits 0 pv d2d4 b7b6 b1c3 f7f6 g1f3 c7c5 d4d5 g7g6 e2e4 a7a5
+    // info depth 10 score cp -60 nodes 4582238 tthits 115152 pv b1c3 c7c5 g1f3 b7b6
+    // info depth 10 score cp -65 nodes 3931283 tthits 56044 pvlen 10 pv g1f3 f7f5 b1c3 c7c5 d2d4 c5d4 (capture) f3d4 (capture) g7g6 c1f4 b8a6
+    // info depth 10 score cp -70 nodes 2954713 nps 1529364 tthits 55452 pvlen 10 pv b1c3 b7b6 g1f3 f7f6 d2d4 c7c5 d4d5 g7g6 e2e4 a7a5
+    //
+    // position startpos moves d2d4 c7c6 e2e4 d8a5 b1d2 g7g6 g1f3 f7f6 f1d3 b7b6 e1g1
+    // info depth 10 score cp -45 nodes 42182693 tthits 0 pvlen 10 pv a5h5 e4e5 g6g5 e5f6 (capture) e7f6 (capture) d1e2 e8d8 d2e4 g5g4 f3d2
+    // info depth 10 score cp -35 nodes 12371631 tthits 191554 pvlen 10 pv a5h5 d2b3 f8h6 d3c4 h6c1 (capture) a1c1 (capture) a7a5 c4g8 (capture) h8g8 (capture) d1d3
+    // info depth 10 score cp -40 nodes 11973931 tthits 81955 pvlen 10 pv a5h5 d2b3 f8h6 c1h6 (capture) h5h6 (capture) d3c4 a7a5 c4g8 (capture) h8g8 (capture) d1d3 
+    // info depth 10 score cp -40 nodes 11585913 tthits 80611 pvlen 10 pv a5h5 d2b3 f8h6 c1h6 (capture) h5h6 (capture) d3c4 a7a5 c4g8 (capture) h8g8 (capture) d1d3
+    // info depth 10 score cp -45 nodes 10787026 nps 1653997 tthits 122816 pvlen 10 pv a5h5 e4e5 g6g5 e5f6 (capture) e7f6 (capture) f1e1 e8d8 d2e4 g5g4 f3d2
+    // info depth 10 score cp -40 nodes 10362286 nps 6142980 tthits 75495 pvlen 10 pv a5h5 d2b3 h5g4 c1e3 e8d8 d1e2 g4h5 d3c4 a7a5 c4g8 (capture)

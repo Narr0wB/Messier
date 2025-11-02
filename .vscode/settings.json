@@ -79,7 +79,9 @@
         "execution": "cpp",
         "locale": "cpp",
         "queue": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "future": "cpp",
+        "expected": "cpp"
     },
     "C_Cpp.errorSquiggles": "enabled"
 }
