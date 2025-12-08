@@ -1,7 +1,8 @@
 __pycache__/
 bin/
+docker/
+.vscode/
 lichess-bot/config.yml
 lichess-bot/.env
 lichess-bot/venv/**
 lichess-bot/.git*/**
-docker/

@@ -1,7 +1,0 @@
-**/__pycache__
-/engines/*
-lichess_bot_auto_logs/*
-*.pgn
-*.log
-*.txt
-TEMP/*
