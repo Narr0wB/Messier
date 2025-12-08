@@ -13,7 +13,7 @@
 
 #define MATE_SCORE UINT16_MAX 
 
-struct SearchInfo {
+struct SearchConfig {
     uint64_t search_start_time = 0;
     uint64_t search_end_time   = 0;
 
@@ -22,20 +22,16 @@ struct SearchInfo {
     bool nodeset = false;
 
     uint64_t nodeslimit;
-    uint64_t nodes;
-    uint64_t qnodes;
     uint32_t movestogo;
 
     int depth;
     int quiescence_depth;
 };
 
-struct SearchData {
-    Move pv_table[MAX_TABLE][MAX_TABLE];
-    int pv_table_len[MAX_TABLE];
-
-    Move killer_moves[MAX_TABLE][2];
-    int history_moves[64][64];
+struct SearchInfo {
+    uint64_t nodes;
+    uint64_t qnodes;
+    uint64_t reduced_nodes;
 };
 
 struct SearchStack {
@@ -47,9 +43,16 @@ struct SearchStack {
 
 struct SearchContext {
     Position board;
+
     TranspositionTable ttable;
+
+    Move pv_table[MAX_TABLE][MAX_TABLE];
+    int pv_table_len[MAX_TABLE];
+
+    Move killer_moves[MAX_TABLE][2];
+    int history_moves[64][64];
+
     SearchInfo info;
-    SearchData data;
 };
 
 #endif // SEARCHTYPES_HPP

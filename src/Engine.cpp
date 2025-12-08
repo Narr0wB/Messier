@@ -11,7 +11,9 @@ namespace Engine {
 	Engine::Engine(int argc, char** argv, bool debug) : 
         m_Debug(debug),  
         m_ShouldClose(false), 
-        m_SearchWorker(),
+		m_Options(),
+		m_Context(),
+        m_SearchWorker()
 	{ 
 		initialise_all_databases();
     	zobrist::initialise_zobrist_keys();
@@ -34,7 +36,7 @@ namespace Engine {
 	/*
 	 * Optimize the time for the next search based on given info 
 	 */
-	void Engine::Optimize(SearchInfo& info, int time, int inc) 
+	void Engine::Optimize(SearchConfig& config, int time, int inc) 
 	{
 		if (time < 0) time = 5000;
 
@@ -43,35 +45,35 @@ namespace Engine {
 		time -= overhead;
 
 		// If given how long should a move take then we use that for our search
-		if (info.movetimeset) {
-			info.search_end_time = info.search_start_time + time;
+		if (config.movetimeset) {
+			config.search_end_time = config.search_start_time + time;
 		}
 
 		// If we are given how much time a player has left and how many more moves should the player make
-		else if (info.timeset && info.movestogo != 0) {
-			const float time_per_move = (int)(time / info.movestogo);
+		else if (config.timeset && config.movestogo != 0) {
+			const float time_per_move = (int)(time / config.movestogo);
 
 			// Never use more than 80% of the available time for a move
 			const float max_time_bound = 0.8f * time;
 			const float max_time = std::min(0.8f * time_per_move, max_time_bound);
 
-			info.search_end_time = info.search_start_time + (uint64_t) max_time;
+			config.search_end_time = config.search_start_time + (uint64_t) max_time;
 		}
 		
 		// If we are given only how much time is left then we define an arbitrary move time
-		else if (info.timeset) {
+		else if (config.timeset) {
 			const float time_per_move = 0.03 * time + inc * 0.75;
 			// Never use more than 80% of the available time for a move
 			const float max_time_bound = 0.8f * time;
 			const float max_time = std::min(time_per_move, max_time_bound);
 
-			info.search_end_time = info.search_start_time + (uint64_t) max_time;
+			config.search_end_time = config.search_start_time + (uint64_t) max_time;
 		}
 	}
 
 	void Engine::NewGame() 
 	{
-		m_Position.reset();
+		m_Context.board.reset();
 		m_SearchWorker.clear();
 	}
 
@@ -98,11 +100,11 @@ namespace Engine {
 		std::vector<std::string> tokens = tokenize(command, ' ');
 
 		if (tokens[0] == "position") {
-            m_SearchContext->table->clear();
-			m_Position.reset();
+            m_Context.ttable.clear();
+			m_Context.board.reset();
 
-			if (tokens[1] == "startpos") { Position::set(START_POSITION, m_Position); } 
-			else if (tokens[1] == "fen") { Position::set(command.substr(command.find("fen") + 4, std::string::npos), m_Position); }
+			if (tokens[1] == "startpos") { Position::set(START_POSITION, m_Context.board); } 
+			else if (tokens[1] == "fen") { Position::set(command.substr(command.find("fen") + 4, std::string::npos), m_Context.board); }
 
 			if (command.find("moves") != std::string::npos) {
                 LOG_INFO("ECHOING MOVES: {}", command);
@@ -126,20 +128,20 @@ namespace Engine {
                         }
                     }
 
-                    if (m_Position.getCurrentColor() == WHITE) {
-                        MoveList<WHITE> move_list(m_Position);
+                    if (m_Context.board.getCurrentColor() == WHITE) {
+                        MoveList<WHITE> move_list(m_Context.board);
                         Move move = move_list.find(Move(moves[i]).to_from(), promotion);
 
                         if (move != NO_MOVE) {
-                            m_Position.play<WHITE>(move);
+                            m_Context.board.play<WHITE>(move);
                         }
                     }
                     else {
-                        MoveList<BLACK> move_list(m_Position);
+                        MoveList<BLACK> move_list(m_Context.board);
                         Move move = move_list.find(Move(moves[i]).to_from(), promotion);
                         
                         if (move != NO_MOVE) {
-                            m_Position.play<BLACK>(move);
+                            m_Context.board.play<BLACK>(move);
                         }
                     }
                 }
@@ -147,7 +149,7 @@ namespace Engine {
 		}
 
 		else if (tokens[0] == "printpos") {
-			std::cout << m_Position << std::endl;
+			std::cout << m_Context.board << std::endl;
 		}
 
 		else if (tokens[0] == "uci") {
@@ -179,7 +181,7 @@ namespace Engine {
 				std::cout << "Setting hash table size to " << table_size << "MB" << std::endl;
 
 				m_Options.hash_table_size_mb = table_size;
-				m_Table->realloc((table_size * 1024 * 1024) / sizeof(Transposition));
+				m_Context.ttable.realloc((table_size * 1024 * 1024) / sizeof(Transposition));
 			}
 			
 			else if (tokens.at(2) == "Threads") {
@@ -219,27 +221,27 @@ namespace Engine {
             m_SearchContext->info = {0};
 
 			// Check if current position is set
-			if (!m_Position) {
-				Position::set(START_POSITION, m_Position);
+			if (!m_Context.board) {
+				Position::set(START_POSITION, m_Context.board);
 			}
 
 			int depth = -1, time = 0, inc = 0;
 
 			for (size_t i = 0; i < tokens.size(); ++i) {
-				if (tokens.at(i) == "binc" and m_Position.getCurrentColor() == BLACK) {
+				if (tokens.at(i) == "binc" and m_Context.board.getCurrentColor() == BLACK) {
 					inc = std::stoi(tokens.at(i + 1));
 				}
 
-				else if (tokens.at(i) == "winc" and m_Position.getCurrentColor() == WHITE) {
+				else if (tokens.at(i) == "winc" and m_Context.board.getCurrentColor() == WHITE) {
 					inc = std::stoi(tokens.at(i + 1));
 				}
 
-				else if (tokens.at(i) == "btime" and m_Position.getCurrentColor() == BLACK) {
+				else if (tokens.at(i) == "btime" and m_Context.board.getCurrentColor() == BLACK) {
 					time = std::stoi(tokens.at(i + 1));
 					m_SearchContext->info.timeset = true;
 				}
 
-				else if (tokens.at(i) == "wtime" and m_Position.getCurrentColor() == WHITE) {
+				else if (tokens.at(i) == "wtime" and m_Context.board.getCurrentColor() == WHITE) {
 					time = std::stoi(tokens.at(i + 1));
 					m_SearchContext->info.timeset = true;
 				}
@@ -268,7 +270,7 @@ namespace Engine {
 				depth = MAX_DEPTH;
 			}
 
-			m_SearchContext->board = m_Position;
+			m_SearchContext->board = m_Context.board;
 			m_SearchContext->info.search_start_time = GetTimeMS();
 			m_SearchContext->info.depth = depth;
 			m_SearchContext->info.quiescence_depth = 3;
@@ -288,7 +290,7 @@ namespace Engine {
 			// Clear data before starting a new search
 			m_SearchContext->data = { 0 };
 				
-			if (m_Position.getCurrentColor() == WHITE) {
+			if (m_Context.board.getCurrentColor() == WHITE) {
 				m_SearchWorker.Run<WHITE>(m_SearchContext);
 			}
 			else {

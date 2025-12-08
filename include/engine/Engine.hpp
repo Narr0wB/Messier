@@ -26,13 +26,13 @@ namespace Engine {
 			bool m_ShouldClose;
 			UCIOptions m_Options;
 
-			Position m_Position;
+			SearchContext m_Context;
 			SearchWorker m_SearchWorker;
 
 		private:
 			void NewGame();
 			void UCIParseCommand(std::string cmd);
-			void Optimize(SearchInfo& info, int time, int inc);
+			void Optimize(SearchConfig& config, int time, int inc);
 
 		public:
 			Engine(int argc, char** argv, bool debug);
