@@ -46,6 +46,10 @@ namespace Search {
         bool tt_hit;
     };
 
+    struct SearchContext {
+
+    };
+
     enum class WorkerState {
         IDLE = 0, SEARCHING, DEAD
     };
@@ -58,8 +62,9 @@ namespace Search {
             std::condition_variable cv;
             WorkerState state;
 
-            Position root_pos;
+            Position root;
             SearchInfo info;
+
             Move pv_table[MAX_TABLE][MAX_TABLE];
             int pv_table_len[MAX_TABLE];
             Move killer_moves[MAX_TABLE][2];
@@ -117,9 +122,9 @@ namespace Search {
     int negamax(std::shared_ptr<SearchContext>& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth);
 
     template<Color C>
-    int AspirationWindowSearch(SearchContext& ctx, SearchConfig cfg, const std::atomic<bool>& stop, SearchStack* ss, int score_avg, int depth);
+    int AspirationWindowSearch(SearchContext& ctx, SearchConfig cfg, SearchStack* ss, int score_avg, int depth);
     
-    void Search(SearchContext& ctx, SearchConfig cfg, const std::atomic<bool>& stop);
+    void search(SearchContext& ctx, SearchInfo& info, const SearchConfig cfg);
 } // namespace Search
 
 #endif // SEARCH_H

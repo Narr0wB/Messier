@@ -422,7 +422,7 @@ namespace Search {
         return score;
     }
 
-    void Search(SearchContext& ctx, SearchConfig cfg, const std::atomic<bool>& stop) 
+    void search(SearchContext& ctx, SearchConfig cfg, const std::atomic<bool>& stop) 
     {
         int alpha = -INF;
         int beta = INF;
