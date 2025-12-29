@@ -5,52 +5,52 @@
 #include <atomic>
 
 namespace Search {
-    std::atomic<bool> stop = false;
+    std::atomic<bool> stop_flag = false;
 
     void Worker::idle_loop() {
         while (true) {
-            std::unique_lock<std::mutex> lock(m_Mutex);
+            std::unique_lock<std::mutex> lock(m_mutex);
 
             // Stop waiting on any state that is not idle
-            m_cv.wait(lock, [&]{ return (m_State != WorkerState::IDLE); });
+            m_cv.wait(lock, [&]{ return (m_state != WorkerState::IDLE); });
             lock.unlock();
 
-            switch (m_State) {
-                case WorkerState::SEARCHING: m_Task(); break;
+            switch (m_state) {
+                case WorkerState::SEARCHING: search(m_ctx, m_cfg); break;
                 case WorkerState::DEAD: return; break;
             }
 
             lock.lock();
-            m_State = WorkerState::IDLE;
-            m_StopFlag = false;
+            m_state = WorkerState::IDLE;
+            stop_flag = false;
         }
     }
 
-    void Worker::run(SearchContext& ctx, SearchConfig cfg) {
+    void Worker::run(Position& root, SearchConfig cfg) {
         // Stop any previous searches
         stop();
 
-        std::unique_lock<std::mutex> lock(m_Mutex);
-        m_Task = [ctx = std::move(ctx), cfg, this] mutable { Search::Search(ctx, cfg, m_StopFlag); };
-        m_State = WorkerState::SEARCHING;
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_cfg = cfg;
+        m_ctx.pos = root;
+        m_state = WorkerState::SEARCHING;
         m_cv.notify_one();
     }
 
     void Worker::stop() {
-        std::unique_lock<std::mutex> lock(m_Mutex);
-        if (m_State == WorkerState::SEARCHING) m_StopFlag = true;
-        m_cv.notify_one();
+        if (m_state == WorkerState::SEARCHING) stop_flag = true;
     }
 
     void Worker::kill() {
         stop();
-        std::unique_lock<std::mutex> lock(m_Mutex);
-        m_State = WorkerState::DEAD;
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_state = WorkerState::DEAD;
         m_cv.notify_one();
+        m_thread.join();
     }
 
     WorkerState Worker::get_state() {
-        return m_State;
+        return m_state;
     }
 
     template <Color Us>
@@ -92,12 +92,12 @@ namespace Search {
     }
 
     template <Color C, bool PVnode>
-    int Quiescence(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth) 
+    int Quiescence(SearchContext& ctx, const SearchConfig& cfg, int Aalpha, int Bbeta, int depth) 
     {
         ctx.info.nodes++;
         ctx.info.qnodes++;
 
-        if ((ctx->stop) ||
+        if ((stop) ||
             (cfg.timeset && GetTimeMS() >= cfg.search_end_time) || 
             (cfg.nodeset && ctx.info.nodes > cfg.nodeslimit)) 
         {

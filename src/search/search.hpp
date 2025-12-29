@@ -5,6 +5,7 @@
 #include "../movegen/position.hpp"
 #include "../movegen/types.hpp"
 #include "../movegen/move.hpp"
+#include "../search/tt.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -47,7 +48,10 @@ namespace Search {
     };
 
     struct SearchContext {
-
+        Move pv_table[MAX_TABLE][MAX_TABLE];
+        int pv_table_len[MAX_TABLE];
+        Move killer_moves[MAX_TABLE][2];
+        int history_moves[64][64];
     };
 
     enum class WorkerState {
@@ -56,32 +60,39 @@ namespace Search {
 
     class Worker {
         private:
-            std::thread thread;
+            std::thread m_thread;
 
-            std::mutex mutex;
-            std::condition_variable cv;
-            WorkerState state;
+            std::mutex m_mutex;
+            std::condition_variable m_cv;
+            WorkerState m_state;
 
-            Position root;
-            SearchInfo info;
-
-            Move pv_table[MAX_TABLE][MAX_TABLE];
-            int pv_table_len[MAX_TABLE];
-            Move killer_moves[MAX_TABLE][2];
-            int history_moves[64][64];
+            SearchConfig m_cfg;
+            SearchContext m_ctx;
+            SearchInfo m_info;
+            TTable& m_tt;
 
             void idle_loop();
             void kill();
 
+            void iterative_deepening();
+
+            template <Color C, bool PVnode>
+            int quiescence(Position& pos, int Aalpha, int Bbeta, int depth);
+            template <Color C, bool PVnode>
+            int search(Position& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth);
+
         public:
-            Worker() : 
-                state(WorkerState::IDLE),
-                thread(&Worker::idle_loop, this)
+            Worker(TTable& table) : 
+                m_state(WorkerState::IDLE),
+                m_thread(&Worker::idle_loop, this),
+                m_ctx(),
+                m_tt(table)
             {};
             ~Worker() { kill(); };
 
             WorkerState get_state();
             void run(Position& pos, SearchConfig cfg);
+            void clear();
             void stop();
     };
 
@@ -115,16 +126,9 @@ namespace Search {
         std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, ply, tt_move));
     }
 
-    template <Color C, bool PVnode>
-    int Quiescence(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth);
-
-    template <Color C, bool PVnode>
-    int negamax(std::shared_ptr<SearchContext>& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth);
-
     template<Color C>
-    int AspirationWindowSearch(SearchContext& ctx, SearchConfig cfg, SearchStack* ss, int score_avg, int depth);
+    int asp(SearchContext& ctx, const SearchConfig& cfg, SearchStack* ss, int score_avg, int depth);
     
-    void search(SearchContext& ctx, SearchInfo& info, const SearchConfig cfg);
 } // namespace Search
 
 #endif // SEARCH_H
