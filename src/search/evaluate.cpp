@@ -1,7 +1,9 @@
 
-#include "evaluate.hpp" 
+#include "evaluate.hpp"
 
-int Evaluate(Position& position) 
+using namespace std::chrono_literals;
+
+int evaluate(Position& position) 
 {
     int score = 0;
 
@@ -25,10 +27,10 @@ int Evaluate(Position& position)
     return score;
 }
 
-int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int ply, Move ttmove) 
+int score_move(const Move& m_, const Search::SearchContext& ctx, const Position& pos, int ply, Move ttmove) 
 {
     // Score the move from the previous iterative search pv higher 
-    if (m_ == ctx->data.pv_table[0][ply]) {
+    if (m_ == ctx.pv_table[0][ply]) {
         return MAX_MOVE_SCORE;
     }
 
@@ -37,18 +39,18 @@ int score_move(const Move& m_, const std::shared_ptr<SearchContext>& ctx, int pl
     }
 
     else if (m_.flags() == MoveFlags::CAPTURE) {
-        return mvv_lva(m_, ctx->board) + 1000;
+        return mvv_lva(m_, pos) + 1000;
     }
 
-    else if (m_ == ctx->data.killer_moves[ply][0]) {
+    else if (m_ == ctx.killer_moves[ply][0]) {
         return 900;
     }
 
-    else if (m_ == ctx->data.killer_moves[ply][1]) {
+    else if (m_ == ctx.killer_moves[ply][1]) {
         return 800;
     }
 
-    return ctx->data.history_moves[m_.from()][m_.to()];
+    return ctx.history_moves[m_.from()][m_.to()];
 }
 
 static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {

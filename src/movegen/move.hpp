@@ -15,11 +15,11 @@ class MoveList {
 	public:
 		explicit MoveList(Position& p) : last(p.generate_legals<Us>(list)) {}
 		explicit MoveList(Position& p, Square sq) : last(p.generate_legals_for<Us>(sq, list)) {}
-		explicit MoveList(Position& p, std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move) : last(p.generate_legals<Us>(list)) { score_moves(ctx, ply, tt_move); }
+		// explicit MoveList(Position& p, std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move) : last(p.generate_legals<Us>(list)) { score_moves(ctx, ply, tt_move); }
 
 		inline Move& operator[](size_t idx) { return list[idx]; }
 
-		void score_moves(std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move);
+		// void score_moves(std::shared_ptr<SearchContext>& ctx, int ply, Move tt_move);
 		Move pick(size_t idx);
 		Move find(uint16_t to_from, uint8_t promotion = 0);
 
@@ -29,7 +29,7 @@ class MoveList {
 };
 
 template <Color Us>
-Move MoveList<Us>::find(uint16_t from_to, uint8_t promotion = 0)
+Move MoveList<Us>::find(uint16_t to_from, uint8_t promotion)
 {
 	for (int i = 0; i < size(); ++i) {
 		if (promotion) {

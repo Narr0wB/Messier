@@ -21,7 +21,7 @@ namespace Engine {
 			UCIOptions m_options;
 
 			Position m_board;
-			Search::TranspositionTable m_ttable;
+			TTable m_table;
 			Search::Worker m_worker;
 
 		private:

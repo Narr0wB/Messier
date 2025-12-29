@@ -1,6 +1,7 @@
 #include "tables.hpp" 
 #include "types.hpp" 
 #include <iostream>
+#include <cstring>
 
 //All piece tables are generated from a program written in Java
 

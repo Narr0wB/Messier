@@ -184,6 +184,9 @@ public:
 
 	template<Color Us>
 	Move *generate_legals(Move* list);
+
+	template <MoveFlags type>
+	Move *generate(Move* list);
 };
 
 //Returns the bitboard of all bishops and queens of a given color
@@ -1022,8 +1025,19 @@ Move* Position::generate_legals(Move* list) {
 	return list;
 }
 
+template <MoveFlags type>
+Move* Position::generate(Move* list)
+{
+	// TODO
+	static_assert(
+		(type == MoveFlags::QUIET ||
+		 type == MoveFlags::CAPTURE ||
+		 type == MoveFlags::PROMOTIONS)
+	);
+}
+
 template<Color Us>
-inline Move* Position::generate_legals_for(Square sq, Move* list)
+Move* Position::generate_legals_for(Square sq, Move* list)
 {
 	constexpr Color Them = ~Us;
 

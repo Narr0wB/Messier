@@ -8,7 +8,8 @@ namespace Engine {
         m_debug(debug),  
         m_should_close(false), 
 		m_options(),
-        m_worker()
+		m_table(DEFAULT_CAPACITY),
+        m_worker(m_table)
 	{ 
 		initialise_all_databases();
     	zobrist::initialise_zobrist_keys();
@@ -70,6 +71,7 @@ namespace Engine {
 	{
 		m_board.reset();
 		m_worker.clear();
+		m_table.clear();
 	}
 
 	void Engine::UCI_command_loop() 
@@ -95,7 +97,6 @@ namespace Engine {
 		std::vector<std::string> tokens = tokenize(command, ' ');
 
 		if (tokens[0] == "position") {
-            m_ttable.clear();
 			m_board.reset();
 
 			if (tokens[1] == "startpos") { Position::set(START_POSITION, m_board); } 
@@ -176,7 +177,8 @@ namespace Engine {
 				std::cout << "Setting hash table size to " << table_size << "MB" << std::endl;
 
 				m_options.hash_table_size_mb = table_size;
-				ttable.realloc((table_size * 1024 * 1024) / sizeof(Transposition));
+				m_table.clear();
+				m_table.resize((table_size * 1024 * 1024) / sizeof(Transposition));
 			}
 			
 			else if (tokens.at(2) == "Threads") {
@@ -208,15 +210,13 @@ namespace Engine {
 			// Interrupt any previous search
 			m_worker.stop();
 
-            // Clear any search info
-            m_worker.clear();
-
 			// Check if current position is set
 			if (!m_board) {
 				Position::set(START_POSITION, m_board);
 			}
 
 			int depth = -1, time = 0, inc = 0;
+			Search::SearchConfig cfg;
 
 			for (size_t i = 0; i < tokens.size(); ++i) {
 				if (tokens.at(i) == "binc" and m_board.getCurrentColor() == BLACK) {
@@ -229,22 +229,22 @@ namespace Engine {
 
 				else if (tokens.at(i) == "btime" and m_board.getCurrentColor() == BLACK) {
 					time = std::stoi(tokens.at(i + 1));
-					m_SearchContext->info.timeset = true;
+					cfg.timeset = true;
 				}
 
 				else if (tokens.at(i) == "wtime" and m_board.getCurrentColor() == WHITE) {
 					time = std::stoi(tokens.at(i + 1));
-					m_SearchContext->info.timeset = true;
+					cfg.timeset = true;
 				}
 
 				else if (tokens.at(i) == "movestogo") {
-					m_SearchContext->info.movestogo = std::stoi(tokens.at(i + 1));
+					cfg.movestogo = std::stoi(tokens.at(i + 1));
 				}
 
 				else if (tokens.at(i) == "movetime") {
 					time = std::stoi(tokens.at(i + 1));
-					m_SearchContext->info.movetimeset = true;
-					m_SearchContext->info.timeset     = true;
+					cfg.movetimeset = true;
+					cfg.timeset     = true;
 				}
 
 				else if (tokens.at(i) == "depth") {
@@ -252,8 +252,8 @@ namespace Engine {
 				}
 
 				else if (tokens.at(i) == "nodes") {
-					m_SearchContext->info.nodeset = true;
-					m_SearchContext->info.nodeslimit = std::stoi(tokens.at(i + 1));
+					cfg.nodeset = true;
+					cfg.nodeslimit = std::stoi(tokens.at(i + 1));
 				}
 			}
 
@@ -261,32 +261,23 @@ namespace Engine {
 				depth = MAX_DEPTH;
 			}
 
-			m_SearchContext->board = m_board;
-			m_SearchContext->info.search_start_time = GetTimeMS();
-			m_SearchContext->info.depth = depth;
-			m_SearchContext->info.quiescence_depth = 3;
+			cfg.search_start_time = time_ms();
+			cfg.max_depth = depth;
+			cfg.quiescence_depth = 3;
 
 			// Optimize time available for this search
-			Optimize(m_SearchContext->info, time, inc);
+			optimize(cfg, time, inc);
 
             LOG_INFO("command: {}", command); 
             LOG_INFO("time: {}", time); 
-            LOG_INFO("start: {}", m_SearchContext->info.search_start_time); 
-            LOG_INFO("stop: {}", m_SearchContext->info.search_end_time); 
-            LOG_INFO("movetime: {}", m_SearchContext->info.search_end_time - m_SearchContext->info.search_start_time); 
-            LOG_INFO("depth: {}", m_SearchContext->info.depth); 
-            LOG_INFO("timeset: {}", m_SearchContext->info.timeset); 
-            LOG_INFO("nodeset: {}", m_SearchContext->info.nodeset); 
+            LOG_INFO("start: {}", cfg.search_start_time); 
+            LOG_INFO("stop: {}", cfg.search_end_time); 
+            LOG_INFO("movetime: {}", cfg.search_end_time - cfg.search_start_time); 
+            LOG_INFO("depth: {}", cfg.max_depth); 
+            LOG_INFO("timeset: {}", cfg.timeset); 
+            LOG_INFO("nodeset: {}", cfg.nodeset); 
 
-			// Clear data before starting a new search
-			m_SearchContext->data = { 0 };
-				
-			if (m_board.getCurrentColor() == WHITE) {
-				m_SearchWorker.Run<WHITE>(m_SearchContext);
-			}
-			else {
-				m_SearchWorker.Run<BLACK>(m_SearchContext);
-			}
+			m_worker.run(m_board, cfg);
 		}
 	}
 } // namespace Engine

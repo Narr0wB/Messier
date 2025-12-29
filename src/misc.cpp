@@ -17,6 +17,6 @@ std::vector<std::string> tokenize(const std::string& str, char delim) {
     return tokens;
 }
 
-uint64_t GetTimeMS() {
+uint64_t time_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 }

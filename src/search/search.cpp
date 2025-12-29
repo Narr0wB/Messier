@@ -1,12 +1,12 @@
 
 #include "search.hpp" 
 #include "evaluate.hpp"
+#include "../misc.hpp"
 
 #include <atomic>
+#include <algorithm>
 
 namespace Search {
-    std::atomic<bool> stop_flag = false;
-
     void Worker::idle_loop() {
         while (true) {
             std::unique_lock<std::mutex> lock(m_mutex);
@@ -16,29 +16,36 @@ namespace Search {
             lock.unlock();
 
             switch (m_state) {
-                case WorkerState::SEARCHING: search(m_ctx, m_cfg); break;
+                case WorkerState::SEARCHING: iterative_deepening(); break;
                 case WorkerState::DEAD: return; break;
             }
 
             lock.lock();
             m_state = WorkerState::IDLE;
-            stop_flag = false;
+            m_stop = false;
         }
     }
 
-    void Worker::run(Position& root, SearchConfig cfg) {
+    void Worker::run(Position& root, const SearchConfig& cfg) {
         // Stop any previous searches
         stop();
 
         std::unique_lock<std::mutex> lock(m_mutex);
         m_cfg = cfg;
-        m_ctx.pos = root;
+        m_root = root;
         m_state = WorkerState::SEARCHING;
         m_cv.notify_one();
     }
 
+    void Worker::clear()
+    {
+        m_ctx  = {0};
+        m_cfg  = {0};
+        m_info = {0};
+    }
+
     void Worker::stop() {
-        if (m_state == WorkerState::SEARCHING) stop_flag = true;
+        if (m_state == WorkerState::SEARCHING) m_stop = true;
     }
 
     void Worker::kill() {
@@ -92,20 +99,19 @@ namespace Search {
     }
 
     template <Color C, bool PVnode>
-    int Quiescence(SearchContext& ctx, const SearchConfig& cfg, int Aalpha, int Bbeta, int depth) 
+    int Worker::quiescence(Position& root, int Aalpha, int Bbeta, int depth) 
     {
-        ctx.info.nodes++;
-        ctx.info.qnodes++;
+        m_info.nodes++;
+        m_info.qnodes++;
 
-        if ((stop) ||
-            (cfg.timeset && GetTimeMS() >= cfg.search_end_time) || 
-            (cfg.nodeset && ctx.info.nodes > cfg.nodeslimit)) 
+        if ((m_stop) ||
+            (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
+            (m_cfg.nodeset && (ctx.info.nodes > m_cfg.nodeslimit))) 
         {
             return 0;
         }
         
-        Transposition tte = ctx->table->probe_hash(ctx->board.get_hash());
-        bool tt_hit = tte.flags != FLAG_EMPTY;
+        auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
         Move tt_move = tte.move;
         int tt_score = tte.score;
         uint8_t tt_bound = tte.flags;
@@ -122,7 +128,7 @@ namespace Search {
             return tt_score;
         }
 
-        int static_eval = corrected_eval<C>(ctx->board); 
+        int static_eval = corrected_eval<C>(pos); 
         int score = static_eval;
         int best_score = -INF;
         int ply = cfg.quiescence_depth - depth;
@@ -136,20 +142,20 @@ namespace Search {
         
         if (depth == 0) return best_score;
 
-        Transposition current_node = {FLAG_ALPHA, ctx->board.get_hash(), 0, best_score, static_eval, NO_MOVE}; 
-        MoveList<C> mL(ctx->board, ctx, ply, tt_move);
+        Transposition current_node = {FLAG_ALPHA, pos.get_hash(), 0, best_score, static_eval, NO_MOVE}; 
+        MoveList<C> mL(pos, ctx, ply, tt_move);
         order_move_list(mL, ctx, ply, tt_move);
 
         for (const Move& m : mL) {
             if (isQuiet(m)) continue;
             
-            int see = SEE<C>(ctx->board, m.to());
+            int see = SEE<C>(pos, m.to());
             if (see < 0)
                 continue;
 
             ctx->board.play<C>(m);
 
-            score = -Quiescence<~C, PVnode>(ctx, -Bbeta, -Aalpha, depth - 1);
+            score = -quiescence<~C, PVnode>(ctx, -Bbeta, -Aalpha, depth - 1);
 
             ctx->board.undo<C>(m);
 
@@ -182,44 +188,43 @@ namespace Search {
     }
 
     template <Color C, bool PVnode>
-    int negamax(std::shared_ptr<SearchContext>& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth) 
+    int Worker::search(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth) 
     {
-        ctx.info.nodes++;
+        m_info.nodes++;
 
         int ply = ss->ply;
         int move_count = 0;
         int score = 0;
         int static_eval = 0;
         int best_score = -INF;
-        ctx.pv_table_len[ply] = ply;
+        m_ctx.pv_table_len[ply] = ply;
 
         // If depth is below zero, dip into quiescence search
         if (depth <= 0) {
-            return Quiescence<C, PVnode>(ctx, Aalpha, Bbeta, cfg.quiescence_depth);
+            return quiescence<C, PVnode>(pos, Aalpha, Bbeta, m_cfg.quiescence_depth);
         }
 
         assert(PVnode || (Aalpha == Bbeta - 1));
         assert(0 < depth && depth < MAX_DEPTH + 1);
 
         // If out of time or hit any other constraints then exit the search
-        if ((ctx->stop) ||
-            (cfg.timeset && GetTimeMS() >= cfg.search_end_time) || 
-            (cfg.nodeset && ctx.info.nodes > cfg.nodeslimit)) 
+        if ((m_stop) ||
+            (cfg.timeset && (time_ms() >= cfg.search_end_time)) || 
+            (cfg.nodeset && (ctx.info.nodes > cfg.nodeslimit))) 
         {
             return 0;
         }
 
         if (ply != 0) {
-            // Check for early draws
             int repetitions = 0;
-            for (int i = ctx->board.ply() - 2; i >= 0; i -= 2) {
-                // If we are above the root ply, and we find a position that has been played before during our search
-                // then that means that most likely this will be repeated, leading to a three fold repetition draw
-                // or if we just find 3 repetitions (including from before root positions) (we have 3 repetitions
-                // because we have found 2 + the one we are currently analyzing)
+            for (int i = pos.ply() - 2; i >= 0; i -= 2) {
+                // If we are at a non-zero ply, and we find that the current position has been played before during the current search
+                // then that means that most likely this exact position will be repeated once more down the line, leading to a three fold repetition draw.
+                // Or, having exhausted the positions explored in the current variation, if we just find 2 more repetitions in the general board history  
+                // (including from before root positions) then we have a three fold repetition draw. 
                 
-                if (ctx->board.get_hash() == ctx->board.history[i].hash &&
-                    (i > ctx->board.ply() - ply || ++repetitions == 2)) {
+                if (pos.get_hash() == pos.history[i].hash &&
+                    (i > pos.ply() - ply || ++repetitions == 2)) {
                     return 0;
                 }
             }
@@ -237,8 +242,7 @@ namespace Search {
         //     return static_eval + piece_value[QUEEN];   
         // }
 
-        Transposition tte = ctx->table->probe_hash(ctx->board.get_hash());
-        bool tt_hit = ss->tt_hit = tte.flags != FLAG_EMPTY;
+        auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
         Move tt_move = tte.move;
         int tt_score = tte.score;
         uint8_t tt_bound = tte.flags;
@@ -255,51 +259,51 @@ namespace Search {
             return tt_score;
         }
         
-        if (ctx->board.in_check<C>()) 
+        if (pos.in_check<C>()) 
             static_eval = ss->static_eval = 0;
         else if (tt_hit) 
             static_eval = ss->static_eval = tte.eval; 
         else 
-            static_eval = ss->static_eval = corrected_eval<C>(ctx->board); 
+            static_eval = ss->static_eval = corrected_eval<C>(pos); 
 
-        Transposition node_ = Transposition{FLAG_ALPHA, ctx->board.get_hash(), (int8_t)depth, static_eval, NO_SCORE, NO_MOVE};
+        Transposition node_ = Transposition{FLAG_ALPHA, pos.get_hash(), (int8_t)depth, static_eval, NO_SCORE, NO_MOVE};
         
         // Generate moves and order them
-        MoveList<C> mL(ctx->board, ctx, ply, tt_move);
+        MoveList<C> mL(pos, ctx, ply, tt_move);
         order_move_list(mL, ctx, ply, tt_move);
 
         for (const Move& m : mL) {
             move_count++;
-            ctx->board.play<C>(m);
+            pos.play<C>(m);
             
             // Late move reduction 
             if (depth >= 3 
                 && move_count > 3 
                 && isQuiet(m) 
-                && (!ctx->board.in_check<C>() && !ctx->board.in_check<~C>())
+                && (!pos.in_check<C>() && !pos.in_check<~C>())
                 && !PVnode) 
             {
                 // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
                 int reduced = std::max(1, depth - (move_count - 2) - 1);
-                score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, reduced);
+                score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced);
 
                 if (score > Aalpha) {
-                    score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+                    score = -negamax<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
                 }
 
-                ctx.info.qnodes++;
+                m_info.qnodes++;
             }
 
             // If we cannot reduce or we are not in a PV node, then search at full depth but with a reduced window
             else if (move_count > 1 || !PVnode) {
-                score = -negamax<~C, false>(ctx, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+                score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
             }
 
             if (PVnode && (move_count == 1 || score > Aalpha && (ply == 0 || score < Bbeta))) {
-                score = -negamax<~C, true>(ctx, ss + 1, -Bbeta, -Aalpha, depth - 1);
+                score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
             }
 
-            ctx->board.undo<C>(m);
+            pos.undo<C>(m);
 
             if (score > best_score) {
                 best_score = score;
@@ -318,16 +322,16 @@ namespace Search {
                     // ply 4: N  N  N  N  m4 
                     
                     if (PVnode) {
-                        ctx.pv_table[ply][ply] = m;
-                        for (int i = ply + 1; i < ctx.pv_table_len[ply + 1]; ++i) {
-                            ctx.pv_table[ply][i] = ctx.pv_table[ply + 1][i];
+                        m_ctx.pv_table[ply][ply] = m;
+                        for (int i = ply + 1; i < m_ctx.pv_table_len[ply + 1]; ++i) {
+                            m_ctx.pv_table[ply][i] = m_ctx.pv_table[ply + 1][i];
                         }
-                        ctx.pv_table_len[ply] = ctx.pv_table_len[ply + 1];
+                        m_ctx.pv_table_len[ply] = m_ctx.pv_table_len[ply + 1];
                     }
 
                     // Rank history moves
                     if (isQuiet(m)) 
-                        ctx.history_moves[m.from()][m.to()] += depth;
+                        m_ctx.history_moves[m.from()][m.to()] += depth;
 
                     node_.flags = FLAG_EXACT;
 
@@ -335,28 +339,28 @@ namespace Search {
                     // that this move will not be taken, though it is useful to keep track of these moves
                     if (best_score >= Bbeta) {
                         if (isQuiet(m)) {
-                            ctx.killer_moves[ply][1] = ctx.killer_moves[ply][0];
-                            ctx.killer_moves[ply][0] = m;
+                            m_ctx.killer_moves[ply][1] = m_ctx.killer_moves[ply][0];
+                            m_ctx.killer_moves[ply][0] = m;
                         }
 
                         node_.flags = FLAG_BETA;
-                        ctx->table->push_position(node_);
+                        m_tt.push(node_);
 
                         return best_score;
                     }
                 }
             }
 
-            if ((ctx->stop) ||
-                (cfg.timeset && GetTimeMS() >= cfg.search_end_time) || 
-                (cfg.nodeset && ctx.info.nodes > cfg.nodeslimit)) 
+            if ((m_stop) ||
+                (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
+                (m_cfg.nodeset && (ctx.info.nodes > m_cfg.nodeslimit))) 
             {
                 return 0;
             }
         }
 
         if (mL.size() == 0) {
-            if (ctx->board.in_check<C>()) {
+            if (pos.in_check<C>()) {
                 // If checkmate
                 return mated_in(ply);
             }
@@ -366,111 +370,99 @@ namespace Search {
             }
         } 
 
-        ctx->table->push_position(node_);
+        m_tt.push(node_);
 
         // Fail Low Node - No better move was found
         return best_score;
     }
 
-    template<Color C>
-    int AspirationWindowSearch(SearchContext& ctx, SearchConfig cfg, const std::atomic<bool>& stop, SearchStack* ss, int score_avg, int depth) 
+    void Worker::iterative_deepening() 
     {
-        int root_depth = depth;
-        int alpha = -INF;
-        int beta = +INF;
-        int score = 0;
-        int delta = 12;
-
-        for (int i = 0; i < MAX_DEPTH; ++i) {
-            (ss + i)->ply = i;
-            (ss + i)->tt_hit = false;
-            (ss + i)->static_eval = 0;
-            (ss + i)->move_count = 0;
-        }
-
-        if (depth >= 3) {
-            alpha = std::max(-INF, score_avg - delta);
-            beta = std::min(INF, score_avg + delta);
-        }
-
-        while (true) {
-            score = negamax<C, true>(ctx, cfg, stop, ss, alpha, beta, depth);
-            
-            if ((stop) ||
-                (cfg.timeset && GetTimeMS() >= cfg.search_end_time) || 
-                (cfg.nodeset && ctx.info.nodes > cfg.nodeslimit)) 
-            {
-                break;
-            }
-            
-            if (score <= alpha) {
-                beta = (alpha + beta) / 2;
-                alpha = std::max(-INF, score - delta);
-                depth = root_depth;
-            }
-            else if (score >= beta) {
-                beta = std::min(INF, score + delta);
-                depth = std::max(depth - 1, root_depth - 5); 
-            }
-            else {
-                break;
-            }
-
-            delta *= 1.44;
-        }
-
-        return score;
-    }
-
-    void search(SearchContext& ctx, SearchConfig cfg, const std::atomic<bool>& stop) 
-    {
-        int alpha = -INF;
-        int beta = INF;
-        int max_depth = cfg.depth;
+        int alpha = -INFTY;
+        int beta = INFTY;
+        int max_depth = m_cfg.max_depth;
         int current_depth = 1;
         int score_avg = 0;
 
-        Color to_play = ctx.board.turn();
+        Color to_play = m_root.turn();
         Move best_move = NO_MOVE;
         SearchStack ss[MAX_DEPTH + 1];
 
         for (; current_depth <= max_depth; ++current_depth) {
-            // Set the context's search depth to the current depth in the iterative deepening process
-            cfg.depth = current_depth;
-            
-            auto start_current_search = GetTimeMS();
+            int root_depth = current_depth;
+            int depth      = root_depth;
+            int alpha      = -INFTY;
+            int beta       = INFTY;
+            int score      = 0;
+            int delta      = 12;
+            int score      = 0;
 
-            int score = 0;
-            if (to_play == WHITE) {
-                score = AspirationWindowSearch<WHITE>(ctx, cfg, stop, ss, score_avg, current_depth);
+            // Wipe search stack
+            for (int i = 0; i < MAX_DEPTH; ++i) {
+                (ss + i)->ply = i;
+                (ss + i)->tt_hit = false;
+                (ss + i)->static_eval = 0;
+                (ss + i)->move_count = 0;
             }
-            else {
-                score = AspirationWindowSearch<BLACK>(ctx, cfg, stop, ss, score_avg, current_depth);
+
+            // if (depth >= 3) {
+            //     alpha = std::max(-INF, score_avg - delta);
+            //     beta = std::min(INF, score_avg + delta);
+            // }
+
+            auto start_current_search = time_ms();
+
+            // Aspiration window search
+            while (true) {
+                if (to_play == WHITE)
+                    score = search<WHITE, true>(m_root, ss, alpha, beta, depth);
+                else
+                    score = search<BLACK, true>(m_root, ss, alpha, beta, depth);
+            
+                if ((m_stop) ||
+                    (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 
+                    (m_cfg.nodeset && m_info.nodes > m_cfg.nodeslimit)) 
+                {
+                    break;
+                }
+            
+                if (score <= alpha) {
+                    beta = (alpha + beta) / 2;
+                    alpha = std::max(-INFTY, score - delta);
+                    depth = root_depth;
+                }
+                else if (score >= beta) {
+                    beta = std::min(INFTY, score + delta);
+                    depth = std::max(depth - 1, root_depth - 5); 
+                }
+                else {
+                    break;
+                }
+
+                delta *= 1.44;
             }
+
             score_avg = score_avg == 0 ? score : (score_avg + score) / 2;
 
-            auto end_current_search = GetTimeMS();
+            auto end_current_search = time_ms();
 
             // If we are out of time or over the limit for nodes (if there is one) then break
-            if ((stop) ||
-                (cfg.timeset && GetTimeMS() >= cfg.search_end_time) || 
-                (cfg.nodeset && ctx.info.nodes > cfg.nodeslimit)) {
+            if ((m_stop) ||
+                (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 
+                (m_cfg.nodeset && m_info.nodes > m_cfg.nodeslimit)) {
                 break;
             }
             
-            uint32_t nps = (float)(ctx.info.nodes + ctx.info.qnodes) / ((end_current_search - start_current_search) / 1000.0f);   
+            uint32_t nps = (float)(m_info.nodes + m_info.qnodes) / ((end_current_search - start_current_search) / 1000.0f);   
 
-            std::cout << "info depth " << current_depth << " score cp " << score * (C == WHITE ? 1 : -1) << " nodes " << ctx.info.nodes << " nps " << nps << " tthits " << ctx->table->hits << " qnodes " << ctx.info.qnodes << " BF " << std::pow(ctx.info.nodes, 1.0f / current_depth) << " pvlen " << ctx.pv_table_len[0] << " pv ";
-            for (int j = 0; j < ctx.pv_table_len[0]; j++) {
-                std::cout << ctx.pv_table[0][j] << " ";
+            std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_tt.hits() << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " pvlen " << m_ctx.pv_table_len[0] << " pv ";
+            for (int j = 0; j < m_ctx.pv_table_len[0]; j++) {
+                std::cout << m_ctx.pv_table[0][j] << " ";
             }
             std::cout << std::endl;
 
-            best_move = ctx.pv_table[0][0];
-
-            ctx.ttable.hits = 0;
-            ctx.info.qnodes = 0;
-            ctx.info.nodes = 0;
+            best_move = m_ctx.pv_table[0][0];
+            m_info = {0};
         }
 
         // Print the best move found
@@ -480,14 +472,17 @@ namespace Search {
     }
 
     // Explicit template definitions
+
     template int SEE<WHITE>(Position& pos, Square to);
     template int SEE<BLACK>(Position& pos, Square to);
 
-    template int Quiescence<WHITE, false>(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth);
-    template int Quiescence<WHITE, true>(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth);
-    template int Quiescence<BLACK, false>(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth);
-    template int Quiescence<BLACK, true>(std::shared_ptr<SearchContext>& ctx, int Aalpha, int Bbeta, int depth);
+    template int Worker::quiescence<WHITE, false>(Position& pos, int Aalpha, int Bbeta, int depth);
+    template int Worker::quiescence<WHITE, true>(Position& pos, int Aalpha, int Bbeta, int depth);
+    template int Worker::quiescence<BLACK, false>(Position& pos, int Aalpha, int Bbeta, int depth);
+    template int Worker::quiescence<BLACK, true>(Position& pos, int Aalpha, int Bbeta, int depth);
 
-    template int AspirationWindowSearch<WHITE>();
-    template int AspirationWindowSearch<BLACK>();
+    template int Worker::search<WHITE, false>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
+    template int Worker::search<WHITE, true>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
+    template int Worker::search<BLACK, false>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
+    template int Worker::search<BLACK, true>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
 } // namespace Search
