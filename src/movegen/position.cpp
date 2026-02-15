@@ -1,5 +1,5 @@
-#include "position.hpp" 
-#include "tables.hpp" 
+#include "movegen/position.hpp" 
+#include "movegen/tables.hpp" 
 #include <sstream>
 
 //Zobrist keys for each piece and each square

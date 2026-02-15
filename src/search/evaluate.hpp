@@ -10,8 +10,6 @@
 
 #define MAX_MOVE_SCORE 20000
 
-const int piece_value[NPIECE_TYPES + 1] = {100, 300, 320, 500, 900, 20000, 0};
-
 int evaluate(Position& position);
 
 template <Color Us>

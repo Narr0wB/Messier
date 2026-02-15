@@ -110,37 +110,71 @@ namespace Engine {
 
                 std::string moves_substr = command.substr(string_start, std::string::npos);
                 std::vector<std::string> moves = tokenize(moves_substr, ' ');
+
+				for (const std::string& move : moves) {
+					Move m = Move::from_string(move);
+
+					if (m_board.turn() == Color::WHITE) {
+						MoveList<LEGAL, WHITE> move_list(m_board);
+						Move *match = std::find(move_list.begin(), move_list.end(), [&](Move *_m) {
+							if (m.is_promotion()) {
+								// If the move is a promotion, Move::from_string() only loaded the promotion type (since captures are inferred by the current position).
+								// Then, we just look for the move with the same (to, from) and promotion type
+								return (_m->to_from() == m.to_from()) && ((_m->flags() & ~MoveFlags::CAPTURE) == m.flags());
+							}
+
+							return _m->to_from() == m.to_from();
+						});
+						
+						if (match != move_list.end()) m_board.play<WHITE>(*match);
+					}
+
+					if (m_board.turn() == Color::BLACK) {
+						MoveList<LEGAL, BLACK> move_list(m_board);
+						Move *match = std::find(move_list.begin(), move_list.end(), [&](Move *_m) {
+							if (m.is_promotion()) {
+								// If the move is a promotion, Move::from_string() only loaded the promotion type (since captures are inferred by the current position).
+								// Then, we just look for the move with the same (to, from) and promotion type
+								return (_m->to_from() == m.to_from()) && ((_m->flags() & ~MoveFlags::CAPTURE) == m.flags());
+							}
+
+							return _m->to_from() == m.to_from();
+						});
+						
+						if (match != move_list.end()) m_board.play<BLACK>(*match);
+					}
+				}
                 
-                for (size_t i = 0; i < moves.size(); ++i) {
-                    uint8_t promotion = 0;
+                // for (size_t i = 0; i < moves.size(); ++i) {
+                //     uint8_t promotion = 0;
 
-                    if (moves[i].length() == 5) {
-                        auto p = moves[i][4];
-                        switch (p) {
-                            case 'n': promotion = MoveFlags::PR_KNIGHT; break;
-                            case 'b': promotion = MoveFlags::PR_BISHOP; break;
-                            case 'r': promotion = MoveFlags::PR_ROOK;   break;
-                            case 'q': promotion = MoveFlags::PR_QUEEN;  break;
-                        }
-                    }
+                //     if (moves[i].length() == 5) {
+                //         auto p = moves[i][4];
+                //         switch (p) {
+                //             case 'n': promotion = MoveFlags::PR_KNIGHT; break;
+                //             case 'b': promotion = MoveFlags::PR_BISHOP; break;
+                //             case 'r': promotion = MoveFlags::PR_ROOK;   break;
+                //             case 'q': promotion = MoveFlags::PR_QUEEN;  break;
+                //         }
+                //     }
 
-                    if (m_board.getCurrentColor() == WHITE) {
-                        MoveList<WHITE> move_list(m_board);
-                        Move move = move_list.find(Move(moves[i]).to_from(), promotion);
+                //     if (m_board.turn() == WHITE) {
+                //         MoveList<WHITE> move_list(m_board);
+                //         Move move = move_list.find(Move(moves[i]).to_from(), promotion);
 
-                        if (move != NO_MOVE) {
-                            m_board.play<WHITE>(move);
-                        }
-                    }
-                    else {
-                        MoveList<BLACK> move_list(m_board);
-                        Move move = move_list.find(Move(moves[i]).to_from(), promotion);
+                //         if (move != NO_MOVE) {
+                //             m_board.play<WHITE>(move);
+                //         }
+                //     }
+                //     else {
+                //         MoveList<BLACK> move_list(m_board);
+                //         Move move = move_list.find(Move(moves[i]).to_from(), promotion);
                         
-                        if (move != NO_MOVE) {
-                            m_board.play<BLACK>(move);
-                        }
-                    }
-                }
+                //         if (move != NO_MOVE) {
+                //             m_board.play<BLACK>(move);
+                //         }
+                //     }
+                // }
 			}
 		}
 
@@ -219,20 +253,20 @@ namespace Engine {
 			Search::SearchConfig cfg;
 
 			for (size_t i = 0; i < tokens.size(); ++i) {
-				if (tokens.at(i) == "binc" and m_board.getCurrentColor() == BLACK) {
+				if (tokens.at(i) == "binc" and m_board.turn() == BLACK) {
 					inc = std::stoi(tokens.at(i + 1));
 				}
 
-				else if (tokens.at(i) == "winc" and m_board.getCurrentColor() == WHITE) {
+				else if (tokens.at(i) == "winc" and m_board.turn() == WHITE) {
 					inc = std::stoi(tokens.at(i + 1));
 				}
 
-				else if (tokens.at(i) == "btime" and m_board.getCurrentColor() == BLACK) {
+				else if (tokens.at(i) == "btime" and m_board.turn() == BLACK) {
 					time = std::stoi(tokens.at(i + 1));
 					cfg.timeset = true;
 				}
 
-				else if (tokens.at(i) == "wtime" and m_board.getCurrentColor() == WHITE) {
+				else if (tokens.at(i) == "wtime" and m_board.turn() == WHITE) {
 					time = std::stoi(tokens.at(i + 1));
 					cfg.timeset = true;
 				}

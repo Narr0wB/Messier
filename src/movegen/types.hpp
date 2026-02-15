@@ -62,6 +62,8 @@ enum Piece : int {
 	NO_PIECE
 };
 
+const int piece_value[NPIECE_TYPES + 1] = {100, 300, 320, 500, 900, 20000, 0};
+
 constexpr Piece make_piece(Color c, PieceType pt) {
 	return Piece((c << 3) + pt);
 }
@@ -172,60 +174,54 @@ enum MoveFlags : int {
 	PC_KNIGHT = 0b1100, PC_BISHOP = 0b1101, PC_ROOK = 0b1110, PC_QUEEN = 0b1111,
 };
 
+enum GenType : int {
+    QUIETS = 0b0000,
+    CAPTURES = 0b1111,
+	EVASIONS = 0b1010,
+	LEGAL = 0b1110
+};
 
 class Move {
 private:
 	// The internal representation of the move
 	uint16_t move;
 
-	// The score of the move during move ordering
-	uint16_t score;
-
 public:
 	//Defaults to a null move (a1a1)
-	inline Move() : move(0), score(0) {}
+	inline Move() : move(0) {}
 	
-	inline Move(uint16_t m) : score(0) { move = m; }
+	inline Move(uint16_t m) : move(m) {}
 
-	inline Move(Square from, Square to) : move(0), score(0) {
-		move = (from << 6) | to;
-	}
+	inline Move(Square from, Square to) : move((from << 6) | to) {}
 
-	inline Move(Square from, Square to, MoveFlags flags) : move(0), score(0) {
-		move = (flags << 12) | (from << 6) | to;
-	}
-
-	Move(const std::string& move) : score(0) {
-		this->move = (create_square(File(move[0] - 'a'), Rank(move[1] - '1')) << 6) |
-			create_square(File(move[2] - 'a'), Rank(move[3] - '1'));
-	}
+	inline Move(Square from, Square to, MoveFlags flags) : move((flags << 12) | (from << 6) | to) {}
 
 	Move(const Move& m) : move(m.move) {};
 	Move(Move& m) : move(m.move) {}
 
-	inline uint16_t get_score() const { return score; }
-	inline void set_score(uint16_t s) { score = s; }
-	inline Square to() const { return Square(move & 0x3f); }
-	inline Square from() const { return Square((move >> 6) & 0x3f); }
-	inline int to_from() const { return move & 0xfff; }
+	inline Square to()			    const { return Square(move & 0x3f); }
+	inline Square from() 			const { return Square((move >> 6) & 0x3f); }
+	inline int to_from() 			const { return move & 0xfff; }
 	inline uint16_t to_from_flags() const { return move; }
-	inline MoveFlags flags() const { return MoveFlags((move >> 12) & 0xf); }
-	static std::string toString(Move& move);
+	inline MoveFlags flags() 		const { return MoveFlags((move >> 12) & 0xf); }
 
-	inline bool is_capture() const {
-		return (move >> 12) & CAPTURES;
-	}
+	inline bool is_capture()   const { return flags() & MoveFlags::CAPTURES; }
+	inline bool is_promotion() const { return flags() & MoveFlags::PROMOTIONS; }
+	inline bool is_quiet()     const { return flags() & MoveFlags::QUIET; }
 
 	void operator=(Move m) { move = m.move; }
-	bool operator==(Move a) const { return to_from() == a.to_from(); }
-	bool operator!=(Move a) const { return to_from() != a.to_from(); }
+	bool operator==(Move a) const { return move == a.move; }
+	bool operator!=(Move a) const { return move != a.move; }
+
+	std::string to_string();
+	static Move from_string(const std::string& string);
 };
 
 #define NO_MOVE Move(0)
 
-inline bool isCapture(Move m) { return (m.flags() & MoveFlags::CAPTURE); };
-inline bool isPromotion(Move m) { return (m.flags() & MoveFlags::PROMOTIONS); };
-inline bool isQuiet(Move m) { return (!isCapture(m) && !isPromotion(m)); };
+// inline bool isCapture(Move m) { return (m.flags() & MoveFlags::CAPTURE); };
+// inline bool isPromotion(Move m) { return (m.flags() & MoveFlags::PROMOTIONS); };
+// inline bool isQuiet(Move m) { return (!isCapture(m) && !isPromotion(m)); };
 
 //Adds, to the move pointer all moves of the form (from, s), where s is a square in the bitboard to
 template<MoveFlags F = QUIET>

@@ -1,4 +1,4 @@
-#include "types.hpp"
+#include "movegen/types.hpp"
 #include <iostream>
 
 //Lookup tables of square names in algebraic chess notation
@@ -144,7 +144,24 @@ std::ostream& operator<<(std::ostream& os, const Move& m) {
 	return os;
 }
 
-std::string Move::toString(Move& move) { 
-	return std::string(SQSTR[move.from()]) + std::string(SQSTR[move.to()]) + std::string(MOVE_TYPESTR_B[move.flags()]); 
+std::string Move::to_string() { 
+	return std::string(SQSTR[from()]) + std::string(SQSTR[to()]) + std::string(MOVE_TYPESTR_B[flags()]); 
 }
 
+Move Move::from_string(const std::string& string) {
+	if (string.length() == 4) {
+		return Move(create_square(File(string[0] - 'a'), Rank(string[1] - '1')), create_square(File(string[2] - 'a'), Rank(string[3] - '1')));	
+	}
+
+	MoveFlags promotion = MoveFlags::PR_BISHOP;
+		
+	switch (string[5]) {
+		case 'n': promotion = MoveFlags::PR_KNIGHT; break;
+		case 'b': promotion = MoveFlags::PR_BISHOP; break;
+		case 'r': promotion = MoveFlags::PR_ROOK;   break;
+		case 'q': promotion = MoveFlags::PR_QUEEN;  break;
+		default: return Move(0);
+	}
+
+	return Move(create_square(File(string[0] - 'a'), Rank(string[1] - '1')), create_square(File(string[2] - 'a'), Rank(string[3] - '1')), promotion);	
+}

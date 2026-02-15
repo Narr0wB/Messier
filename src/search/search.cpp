@@ -1,10 +1,11 @@
 
-#include "search.hpp" 
-#include "evaluate.hpp"
-#include "../misc.hpp"
-
 #include <atomic>
 #include <algorithm>
+
+#include "search/search.hpp" 
+#include "search/evaluate.hpp"
+#include "search/movepicker.hpp"
+#include "misc.hpp"
 
 namespace Search {
     void Worker::idle_loop() {
@@ -60,35 +61,6 @@ namespace Search {
         return m_state;
     }
 
-    template <Color Us>
-    int SEE(Position& pos, Square to) 
-    {
-        int value = 0;
-        Bitboard occupied = pos.all_pieces<WHITE>() | pos.all_pieces<BLACK>();
-
-        int pt;
-        Square from = NO_SQUARE;
-        Bitboard attackers;
-        for (pt = PAWN; pt < KING; pt++) {
-            if ( (attackers = pos.attacker_from<Us>((PieceType)pt, to, occupied)) ) {
-                from = pop_lsb(&attackers);
-                break;
-            }
-        }
-
-        if (from != NO_SQUARE) {
-            int captured = pos.at(to) == NO_PIECE ? 6 : type_of(pos.at(to));
-            Move see_move(from, to, captured == 6 ? MoveFlags::QUIET : MoveFlags::CAPTURE);
-
-            pos.play<Us>(see_move);
-
-            value = piece_value[captured] - SEE<~Us>(pos, to);    
-
-            pos.undo<Us>(see_move);
-        }
-        
-        return value;
-    }
    
     int mate_in(int ply) {
         return MATE_SCORE - ply;
@@ -98,6 +70,11 @@ namespace Search {
         return -MATE_SCORE + ply;
     }
 
+
+
+    /*
+        Quiescence search
+    */
     template <Color C, bool PVnode>
     int Worker::quiescence(Position& root, int Aalpha, int Bbeta, int depth) 
     {
@@ -130,29 +107,21 @@ namespace Search {
 
         int static_eval = corrected_eval<C>(pos); 
         int score = static_eval;
-        int best_score = -INF;
-        int ply = cfg.quiescence_depth - depth;
+        int best_score = score;
+        int ply = -depth;
 
-        if (score >= Bbeta) return score;
-
-        if (score > best_score) {
-            best_score = score;
-            if (best_score > Aalpha) Aalpha = best_score;
+        if (best_score > Aalpha) {
+            if (best_score >= Bbeta) return best_score;
+            Aalpha = best_score;
         }
         
-        if (depth == 0) return best_score;
+        if (depth <= -m_cfg.quiescence_depth) return best_score;
 
         Transposition current_node = {FLAG_ALPHA, pos.get_hash(), 0, best_score, static_eval, NO_MOVE}; 
-        MoveList<C> mL(pos, ctx, ply, tt_move);
-        order_move_list(mL, ctx, ply, tt_move);
 
-        for (const Move& m : mL) {
-            if (isQuiet(m)) continue;
-            
-            int see = SEE<C>(pos, m.to());
-            if (see < 0)
-                continue;
-
+        MovePicker picker(pos, m_ctx, ply, depth, tt_move);
+        // TODO: Detect if this position is checkmate
+        for (Move m = picker.next()) {
             ctx->board.play<C>(m);
 
             score = -quiescence<~C, PVnode>(ctx, -Bbeta, -Aalpha, depth - 1);
@@ -166,7 +135,6 @@ namespace Search {
 
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
-
                     current_node.flags = FLAG_EXACT;
 
                     if (best_score >= Bbeta) {
@@ -177,16 +145,14 @@ namespace Search {
             }
         }
 
-        if (mL.size() == 0) {
-            if (ctx->board.in_check<C>()) 
-                return mated_in(ply);
-            else 
-                return 0;
-        }
-
         return best_score;
     }
 
+
+
+    /* 
+        Main search function
+    */
     template <Color C, bool PVnode>
     int Worker::search(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth) 
     {
@@ -196,16 +162,17 @@ namespace Search {
         int move_count = 0;
         int score = 0;
         int static_eval = 0;
-        int best_score = -INF;
+        int best_score = -INFTY;
         m_ctx.pv_table_len[ply] = ply;
 
         // If depth is below zero, dip into quiescence search
         if (depth <= 0) {
-            return quiescence<C, PVnode>(pos, Aalpha, Bbeta, m_cfg.quiescence_depth);
+            return quiescence<C, PVnode>(pos, Aalpha, Bbeta, depth);
         }
 
-        assert(PVnode || (Aalpha == Bbeta - 1));
+        assert(-INFTY <= Aalpha && Aalpha < Bbeta && Bbeta <= INFTY);
         assert(0 < depth && depth < MAX_DEPTH + 1);
+        assert(PVnode || (Aalpha == Bbeta - 1));
 
         // If out of time or hit any other constraints then exit the search
         if ((m_stop) ||
@@ -218,15 +185,18 @@ namespace Search {
         if (ply != 0) {
             int repetitions = 0;
             for (int i = pos.ply() - 2; i >= 0; i -= 2) {
-                // If we are at a non-zero ply, and we find that the current position has been played before during the current search
-                // then that means that most likely this exact position will be repeated once more down the line, leading to a three fold repetition draw.
-                // Or, having exhausted the positions explored in the current variation, if we just find 2 more repetitions in the general board history  
-                // (including from before root positions) then we have a three fold repetition draw. 
-                
-                if (pos.get_hash() == pos.history[i].hash &&
-                    (i > pos.ply() - ply || ++repetitions == 2)) {
-                    return 0;
-                }
+                /*
+                    If we find, in our linear board history, the current position, then we have proof that there exists a path (a sequence of moves)
+                    that connects this position to itself. If we were to rexplore this position, we would explore the circular path, which would lead
+                    us to this position again, triggering a three-fold repetition. We then assign the value 0 to this position (it's a draw)
+                */
+
+                if (pos.get_hash() == pos.history[i].hash) return 0;
+
+                // if (pos.get_hash() == pos.history[i].hash &&
+                //     (i > pos.ply() - ply || ++repetitions == 2)) {
+                //     return 0;
+                // }
             }
 
             // Mate distance pruning 
@@ -376,6 +346,8 @@ namespace Search {
         return best_score;
     }
 
+
+
     void Worker::iterative_deepening() 
     {
         int alpha = -INFTY;
@@ -472,9 +444,6 @@ namespace Search {
     }
 
     // Explicit template definitions
-
-    template int SEE<WHITE>(Position& pos, Square to);
-    template int SEE<BLACK>(Position& pos, Square to);
 
     template int Worker::quiescence<WHITE, false>(Position& pos, int Aalpha, int Bbeta, int depth);
     template int Worker::quiescence<WHITE, true>(Position& pos, int Aalpha, int Bbeta, int depth);

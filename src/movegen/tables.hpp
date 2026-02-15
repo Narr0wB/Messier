@@ -16,7 +16,7 @@ The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 */
 
-#include "types.hpp" 
+#include "movegen/types.hpp" 
 
 extern const Bitboard KING_ATTACKS[NSQUARES];
 extern const Bitboard KNIGHT_ATTACKS[NSQUARES];

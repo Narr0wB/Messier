@@ -12,6 +12,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
+#include <atomic>
 
 #define MAX_DEPTH 20
 #define MAX_TABLE MAX_DEPTH + 1
@@ -104,41 +105,38 @@ namespace Search {
             void stop();
     };
 
-    template <Color Us>
-    int SEE(Position& pos, Square to);
-
     int mate_in(int ply);
     int mated_in(int ply);
 
     // Order moves using context
-    template <Color Us>
-    struct move_sorting_criterion {
-        const SearchContext& ctx;
-        const Position& pos;
-        int ply;
-        Move tt_move;
+    // template <Color Us>
+    // struct move_sorting_criterion {
+    //     const SearchContext& ctx;
+    //     const Position& pos;
+    //     int ply;
+    //     Move tt_move;
 
-        move_sorting_criterion(const SearchContext& c, const Position& p, int pl, Move m) : 
-            ctx(c), 
-            pos(p),
-            ply(pl), 
-            tt_move(m)
-        {} 
+    //     move_sorting_criterion(const SearchContext& c, const Position& p, int pl, Move m) : 
+    //         ctx(c), 
+    //         pos(p),
+    //         ply(pl), 
+    //         tt_move(m)
+    //     {} 
 
-        bool operator() (const Move& a, const Move& b) 
-        {
-            // Since the std::stable_sort function actually sorts elements in a list in ascending order by checking if a < b is true,  
-            // we have to flip the comparison in order to have a list ordered in descending order 
-            return score_move(a, ctx, pos, ply, tt_move) > score_move(b, ctx, pos, ply, tt_move);
-        }
-    };
+    //     bool operator() (const Move& a, const Move& b) 
+    //     {
+    //         // Since the std::stable_sort function actually sorts elements in a list in ascending order by checking if a < b is true,  
+    //         // we have to flip the comparison in order to have a list ordered in descending order 
+    //         return score_move(a, ctx, pos, ply, tt_move) > score_move(b, ctx, pos, ply, tt_move);
+    //     }
+    // };
 
-    template <Color Us>
-    void order_move_list(MoveList<Us>& m, const SearchContext& ctx, const Position& pos, int ply, Move tt_move) 
-    {
-        // This function sorts the movelist in descending order
-        std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, pos, ply, tt_move));
-    }
+    // template <Color Us>
+    // void order_move_list(MoveList<Us>& m, const SearchContext& ctx, const Position& pos, int ply, Move tt_move) 
+    // {
+    //     // This function sorts the movelist in descending order
+    //     std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, pos, ply, tt_move));
+    // }
 } // namespace Search
 
 #endif // SEARCH_H
