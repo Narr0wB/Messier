@@ -7,23 +7,24 @@
 #include "movegen/move.hpp"
 #include "movegen/position.hpp"
 #include "search/search.hpp"
+#include "log.hpp"
 
 static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
     /*           PAWN  KNIGHT BISHOP ROOK QUEEN KING */
-    /* PAWN */   {105, 205,   225,   235, 805,  905},
+    /* PAWN   */ {105, 205,   225,   235, 805,  905},
     /* KNIGHT */ {104, 204,   224,   234, 804,  904},
     /* BISHOP */ {103, 203,   223,   233, 803,  903},
-    /* ROOK */   {102, 202,   222,   232, 802,  902},
+    /* ROOK   */ {102, 202,   222,   232, 802,  902},
     /* QUEEN  */ {101, 201,   221,   231, 801,  901},
-    /* KING  */  {100, 200,   220,   230, 800,  900},
+    /* KING   */ {100, 200,   220,   230, 800,  900},
 };
 
-#define GOOD_CAPTURE_THRESHOLD 10;
-#define GOOD_QUIET_THRESHOLD   30;
+#define GOOD_CAPTURE_THRESHOLD 0
+#define GOOD_QUIET_THRESHOLD   30
 
 enum Stage : int {
     MAIN_TT,
-    CAPURE_INIT,
+    CAPTURE_INIT,
     GOOD_CAPTURES,
     QUIET_INIT,
     GOOD_QUIETS,
@@ -39,16 +40,22 @@ enum Stage : int {
     EVASION,
 };
 
+inline Stage& operator++(Stage& s) { s = static_cast<Stage>(static_cast<int>(s) + 1); return s; }
+
 struct ExtMove : public Move {
     public:
         int score;
+
+        ExtMove(const Move& m) : score(0), Move(m) {}
+        ExtMove() : score(0), Move(0) {}
+
         inline bool operator>(const ExtMove& b) { return score > b.score; }
+        inline bool operator<(const ExtMove& b) { return score < b.score; }
 };
 
 /* Static Exchange Evaluation */
 template <Color Us>
-int SEE(Position& pos, Square to);
-
+int SEE(Position pos, Square to);
 
 /* Borrowed most of the ideas of this MovePicker from Stockfish */
 class MovePicker {
@@ -85,7 +92,8 @@ class MovePicker {
                 case QUIESCENCE_TT:
                 case EVASION_TT:
                     ++m_stage;
-                    return m_ttmove;
+                    if (m_ttmove != Move::none()) return m_ttmove;
+                    goto top;
                 
                 case QUIESCENCE_INIT:
                 case CAPTURE_INIT: {
@@ -96,18 +104,21 @@ class MovePicker {
 
                     std::sort(m_cur, m_end_cur);
                     ++m_stage;
-                    goto top
+                    goto top;
                 }
 
-                case GOOD_CAPURES: {
+                case GOOD_CAPTURES: {
                     Move m = select([&]() {
-                        if (SEE(m_pos, m_cur->to()) > GOOD_CAPTURE_THRESHOLD)
+                        if (m_cur->score > GOOD_CAPTURE_THRESHOLD)
                             return true;
                         
+                        // Since re-searching the array of capures once again is expensive, we move the bad captures to the front
+                        // and we keep track of the end of the list of bad captures
                         std::swap(*m_end_bad_captures++, *m_cur);
                         return false;
                     });
-                    if (m != NO_MOVE) return m;
+
+                    if (m != Move::none()) return m;
                     
                     ++m_stage;
                     // Intentional fallthrough to the next stage
@@ -125,10 +136,10 @@ class MovePicker {
 
                 case GOOD_QUIETS: {
                     Move m = select([&]() { return m_cur->score > GOOD_QUIET_THRESHOLD; });
-                    if (m != NO_MOVE) return m;
+                    if (m != Move::none()) return m;
 
                     // Prepare the iterators to loop over bad captures 
-                    m_cur = moves;
+                    m_cur = m_moves;
                     m_end_cur = m_end_bad_captures;
 
                     ++m_stage;
@@ -137,23 +148,23 @@ class MovePicker {
 
                 case BAD_CAPTURES: {
                     Move m = select([&]() { return true; });
-                    if (m != NO_MOVE) return m;
+                    if (m != Move::none()) return m;
 
                     // Prepare the iterators to loop over all quiets again 
                     m_cur = m_end_captures;
                     m_end_cur = m_end_generated;
 
-                    ++m_stage:
+                    ++m_stage;
                     // Intentional fallthrough to the next stage
                 }
 
                 case BAD_QUIETS: 
                     return select([&]() { return m_cur->score < GOOD_QUIET_THRESHOLD; });
 
-                case EVATION_INIT: {
+                case EVASION_INIT: {
                     MoveList<GenType::EVASIONS, C> list(m_pos);
 
-                    m_cur = moves;
+                    m_cur = m_moves;
                     m_end_cur = m_end_generated =  score(list);
 
                     ++m_stage;
@@ -161,12 +172,12 @@ class MovePicker {
                 }
 
                 case QUIESCENCE:
-                case EVATION: 
+                case EVASION: 
                     return select([]() { return true; });
             }
 
             assert(false);
-            return NO_MOVE;
+            return Move::none();
         }
 
     private:
@@ -184,11 +195,12 @@ class MovePicker {
 
         template <typename Pred>
         Move select(Pred predicate) {
-            for (; m_cur < m_end_cur; ++m_cur)
+            for (; m_cur < m_end_cur; ++m_cur) {
                 if (*m_cur != m_ttmove && predicate())
                     return *m_cur++;
+            }
             
-            return NO_MOVE;
+            return Move::none();
         }
 
         /* This function both scores and inserts the moves of the provided move list into the MovePicker's internal engine */
@@ -200,20 +212,20 @@ class MovePicker {
             Bitboard threat_by_lesser[NPIECE_TYPES] = {0}; 
             if constexpr (type == GenType::QUIETS) {
                 threat_by_lesser[PAWN] = 0;
-                threat_by_lesser[KNIGHT] = thread_by_lesser[BISHOP] = m_pos.attacks_by<PAWN, ~C>(); 
+                threat_by_lesser[KNIGHT] = threat_by_lesser[BISHOP] = m_pos.attacks_by<PAWN, ~C>(); 
                 threat_by_lesser[QUEEN] = threat_by_lesser[BISHOP] | m_pos.attacks_by<KNIGHT, ~C>() | m_pos.attacks_by<BISHOP, ~C>();
                 threat_by_lesser[KING] = threat_by_lesser[QUEEN] | m_pos.attacks_by<QUEEN, ~C>();
             }
 
             ExtMove* it = m_cur;
-            for (auto move& : list) {
+            for (auto move : list) {
                 ExtMove& m = *it++;
                 m = move;
 
                 const Square    from     = m.from();
                 const Square    to       = m.to();
                 const Piece     pc       = m_pos.at(from);
-                const PieceType pt       = type_of(pt);
+                const PieceType pt       = type_of(pc);
                 const Piece     captured = m_pos.at(to);
                 
                 if constexpr (type == GenType::CAPTURES) {
@@ -230,7 +242,7 @@ class MovePicker {
                 else {
                     // GenType::EVASIONS
 
-                    if (m.flags & MoveFlags::CAPTURES)
+                    if (m.is_capture())
                         m.score = piece_value[pt] + (1 << 20);
                     else 
                         m.score = m_ctx.history_moves[from][to];

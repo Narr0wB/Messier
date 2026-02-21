@@ -3,22 +3,21 @@ UNAME = $(shell uname -s)
 
 export SRCDIR  = $(BASE)/src
 export OUTDIR  = $(BASE)/bin
-export INCLUDE = $(BASE)/src
+export INCLUDES = -I$(BASE)/include -I$(SRCDIR)
 
 setup: 
 	@mkdir -p $(OUTDIR) 
 
 export CC = g++
-export LD = ld
+export LD = g++ 
 export DEBUG = -g
-export CCFLAGS = $(DEGUG) -O3 -std=c++20
+export CCFLAGS = -g -O0 -std=c++20
 
 TARGET = $(OUTDIR)/messier
 
 objs:
 	make -C $(SRCDIR)/movegen
 	make -C $(SRCDIR)/search
-	make -C $(SRCDIR)/uci
 	make -C $(SRCDIR)
 
 $(TARGET): objs
@@ -27,5 +26,5 @@ $(TARGET): objs
 build: setup $(TARGET)
 
 clean:
-	rm build/*.o
+	rm bin/*
 

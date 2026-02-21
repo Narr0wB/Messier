@@ -133,7 +133,7 @@ Square bsf(Bitboard b);
 constexpr Rank rank_of(Square s) { return Rank(s >> 3); }
 constexpr File file_of(Square s) { return File(s & 0b111); }
 constexpr int diagonal_of(Square s) { return 7 + rank_of(s) - file_of(s); }
-constexpr int anti_diagonal_of(Square s) { return rank_of(s) + file_of(s); }
+constexpr int anti_diagonal_of(Square s) { return static_cast<int>(rank_of(s)) + static_cast<int>(file_of(s)); }
 constexpr Square create_square(File f, Rank r) { return Square(r << 3 | f); }
 
 //Shifts a bitboard in a particular direction. There is no wrapping, so bits that are shifted of the edge are lost 
@@ -166,7 +166,6 @@ enum MoveFlags : int {
 	QUIET = 0b0000, DOUBLE_PUSH = 0b0001,
 	OO = 0b0010, OOO = 0b0011,
 	CAPTURE = 0b1000,
-	CAPTURES = 0b1111,
 	EN_PASSANT = 0b1010,
 	PROMOTIONS = 0b0100,
 	PROMOTION_CAPTURES = 0b1100,
@@ -203,18 +202,20 @@ public:
 	inline Square from() 			const { return Square((move >> 6) & 0x3f); }
 	inline int to_from() 			const { return move & 0xfff; }
 	inline uint16_t to_from_flags() const { return move; }
+	inline uint16_t raw() 			const { return move; }
 	inline MoveFlags flags() 		const { return MoveFlags((move >> 12) & 0xf); }
 
-	inline bool is_capture()   const { return flags() & MoveFlags::CAPTURES; }
+	inline bool is_capture()   const { return flags() & MoveFlags::CAPTURE; }
 	inline bool is_promotion() const { return flags() & MoveFlags::PROMOTIONS; }
 	inline bool is_quiet()     const { return flags() & MoveFlags::QUIET; }
 
-	void operator=(Move m) { move = m.move; }
-	bool operator==(Move a) const { return move == a.move; }
-	bool operator!=(Move a) const { return move != a.move; }
+	inline Move& operator=(Move m) { move = m.move; return *this; }
+	inline bool operator==(Move a) const { return move == a.move; }
+	inline bool operator!=(Move a) const { return move != a.move; }
 
 	std::string to_string();
 	static Move from_string(const std::string& string);
+	inline static Move none() { return Move(0); };
 };
 
 #define NO_MOVE Move(0)

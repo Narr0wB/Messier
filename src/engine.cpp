@@ -114,33 +114,25 @@ namespace Engine {
 				for (const std::string& move : moves) {
 					Move m = Move::from_string(move);
 
+					auto match_lambda = [&m](Move _m) {
+						if (m.is_promotion()) {
+							// If the move is a promotion, Move::from_string() only loaded the promotion type (since captures are inferred by the current position).
+							// Then, we just look for the move with the same (to, from) and promotion type
+							return (_m.to_from() == m.to_from()) && ((_m.flags() & ~MoveFlags::CAPTURE) == m.flags());
+						}
+
+						return (_m.to_from() == m.to_from());
+					};
+
 					if (m_board.turn() == Color::WHITE) {
 						MoveList<LEGAL, WHITE> move_list(m_board);
-						Move *match = std::find(move_list.begin(), move_list.end(), [&](Move *_m) {
-							if (m.is_promotion()) {
-								// If the move is a promotion, Move::from_string() only loaded the promotion type (since captures are inferred by the current position).
-								// Then, we just look for the move with the same (to, from) and promotion type
-								return (_m->to_from() == m.to_from()) && ((_m->flags() & ~MoveFlags::CAPTURE) == m.flags());
-							}
-
-							return _m->to_from() == m.to_from();
-						});
-						
+						Move *match = std::find_if(move_list.begin(), move_list.end(), match_lambda);
 						if (match != move_list.end()) m_board.play<WHITE>(*match);
 					}
 
 					if (m_board.turn() == Color::BLACK) {
 						MoveList<LEGAL, BLACK> move_list(m_board);
-						Move *match = std::find(move_list.begin(), move_list.end(), [&](Move *_m) {
-							if (m.is_promotion()) {
-								// If the move is a promotion, Move::from_string() only loaded the promotion type (since captures are inferred by the current position).
-								// Then, we just look for the move with the same (to, from) and promotion type
-								return (_m->to_from() == m.to_from()) && ((_m->flags() & ~MoveFlags::CAPTURE) == m.flags());
-							}
-
-							return _m->to_from() == m.to_from();
-						});
-						
+						Move *match = std::find_if(move_list.begin(), move_list.end(), match_lambda);
 						if (match != move_list.end()) m_board.play<BLACK>(*match);
 					}
 				}
@@ -250,7 +242,7 @@ namespace Engine {
 			}
 
 			int depth = -1, time = 0, inc = 0;
-			Search::SearchConfig cfg;
+			Search::SearchConfig cfg = {0};
 
 			for (size_t i = 0; i < tokens.size(); ++i) {
 				if (tokens.at(i) == "binc" and m_board.turn() == BLACK) {

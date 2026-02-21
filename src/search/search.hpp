@@ -2,10 +2,10 @@
 #ifndef SEARCH_H 
 #define SEARCH_H
 
-#include "../movegen/position.hpp"
-#include "../movegen/types.hpp"
-#include "../movegen/move.hpp"
-#include "src/search/tt.hpp"
+#include "movegen/position.hpp"
+#include "movegen/types.hpp"
+#include "movegen/move.hpp"
+#include "search/tt.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -18,7 +18,7 @@
 #define MAX_TABLE MAX_DEPTH + 1
 
 #define MATE_SCORE UINT16_MAX 
-#define INFTY (MATE_SCORE + 1) 
+#define INFTY (MATE_SCORE * 2) 
 
 namespace Search {
     struct SearchConfig {
@@ -105,8 +105,8 @@ namespace Search {
             void stop();
     };
 
-    int mate_in(int ply);
-    int mated_in(int ply);
+    inline int mate_in(int ply) { return MATE_SCORE - ply; };
+    inline int mated_in(int ply) { return -MATE_SCORE + ply; };
 
     // Order moves using context
     // template <Color Us>

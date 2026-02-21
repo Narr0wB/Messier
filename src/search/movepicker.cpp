@@ -2,7 +2,7 @@
 #include "search/movepicker.hpp"
 
 template <Color Us>
-int SEE(Position& pos, Square to) 
+int SEE(Position pos, Square to) 
 {
     int value = 0;
     Bitboard occupied = pos.all_pieces<WHITE>() | pos.all_pieces<BLACK>();
@@ -54,7 +54,5 @@ MovePicker::MovePicker(const Position& pos, const Search::SearchContext& ctx, in
 
 // }
 
-
-
-template int SEE<WHITE>(Position& pos, Square to);
-template int SEE<BLACK>(Position& pos, Square to);
+template int SEE<WHITE>(Position pos, Square to);
+template int SEE<BLACK>(Position pos, Square to);

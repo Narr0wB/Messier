@@ -3,6 +3,7 @@
 #define MOVE_HPP
 
 #include "movegen/types.hpp" 
+#include "movegen/position.hpp" 
 
 #define MAX_MOVES 218
 
@@ -13,7 +14,7 @@ class MoveList {
 		Move *last;
 
 	public:
-		explicit MoveList(Position& p) : last(p.generate<type, Us>(list)) {}
+		explicit MoveList(const Position& p) : last(p.generate<type, Us>(list)) {}
 
 		inline Move& operator[](size_t idx) { return list[idx]; }
 

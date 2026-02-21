@@ -2,9 +2,10 @@
 #ifndef TRANSPOSITION_H
 #define TRANSPOSITION_H
 
-#include "../movegen/move.hpp"
-
 #include <tuple>
+
+#include "../movegen/move.hpp"
+#include "log.hpp"
 
 #define FLAG_EMPTY 0
 #define FLAG_EXACT 1
@@ -22,7 +23,7 @@ struct Transposition {
     uint8_t flags;
     uint8_t depth;
 
-    Transposition() = delete; 
+    Transposition() = default;
 
     Transposition(uint8_t f, uint64_t h, int8_t d, int sc, int e, Move m) : 
     flags(f), hash(h), depth(d), score(sc), move(m), eval(e) {};
@@ -46,9 +47,9 @@ class TTable {
             m_hits(0)
         {
             if (capacity < MAX_CAPACITY)
-                m_map.reserve(capacity);
+                m_map.resize(capacity);
             else
-                m_map.reserve(MAX_CAPACITY);
+                m_map.resize(MAX_CAPACITY);
         }
 
         TTable() :

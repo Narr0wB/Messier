@@ -20,12 +20,6 @@ void TTable::push(uint64_t hash, const Transposition& t)
     Transposition& entry = m_map[mul_hi64(hash, m_capacity)];
     entry = t;
     m_stored++;
-
-    // if (entry.flags == FLAG_EMPTY) {
-    // }
-    // else {
-
-    // }
 }
 
 std::tuple<bool, Transposition> TTable::probe(uint64_t hash) 
