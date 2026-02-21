@@ -11,9 +11,6 @@ namespace Engine {
 		m_table(DEFAULT_CAPACITY),
         m_worker(m_table)
 	{ 
-		initialise_all_databases();
-    	zobrist::initialise_zobrist_keys();
-
 		// Parse command line arguments
 		for (int i = 1; i < argc; ++i) {
 			std::string arg = argv[i];

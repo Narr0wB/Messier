@@ -1,9 +1,9 @@
 
 #include "tt.hpp"
-#include "../log.hpp"
-#include "../misc.hpp"
+#include "log.hpp"
+#include "misc.hpp"
 
-void TTable::resize(uint64_t new_capacity)
+void TTable::resize(size_t new_capacity)
 {
     m_map.resize(new_capacity);
     m_capacity = new_capacity;

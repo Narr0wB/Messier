@@ -32,19 +32,6 @@ int SEE(Position pos, Square to)
 }
 
 /* Standard search constructor */
-MovePicker::MovePicker(const Position& pos, const Search::SearchContext& ctx, int ply, int depth, Move tt_move) :
-    m_pos(pos),
-    m_ctx(ctx),
-    m_ply(ply),
-    m_depth(depth),
-    m_ttmove(tt_move)
-{
-    if (pos.checkers)
-        m_stage = Stage::EVASION_TT;
-    else
-        m_stage = (depth > 0) ? Stage::MAIN_TT : Stage::QUIESCENCE_TT;
-}
-
 // MovePicker::MovePicker(const Position& pos, const Search::SearchContext& ctx, int ply, Move tt_move) :
 //     m_pos(pos),
 //     m_ctx(ctx),

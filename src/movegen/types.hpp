@@ -187,7 +187,7 @@ private:
 
 public:
 	//Defaults to a null move (a1a1)
-	inline Move() : move(0) {}
+	inline constexpr Move() : move(0) {}
 	
 	inline Move(uint16_t m) : move(m) {}
 

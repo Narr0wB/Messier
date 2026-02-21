@@ -49,8 +49,8 @@ struct ExtMove : public Move {
         ExtMove(const Move& m) : score(0), Move(m) {}
         ExtMove() : score(0), Move(0) {}
 
-        inline bool operator>(const ExtMove& b) { return score > b.score; }
-        inline bool operator<(const ExtMove& b) { return score < b.score; }
+        inline bool operator>(const ExtMove& b) const { return score > b.score; }
+        inline bool operator<(const ExtMove& b) const { return score < b.score; }
 };
 
 /* Static Exchange Evaluation */
@@ -58,9 +58,22 @@ template <Color Us>
 int SEE(Position pos, Square to);
 
 /* Borrowed most of the ideas of this MovePicker from Stockfish */
+template <Color C>
 class MovePicker {
     public:
-        MovePicker(const Position&, const Search::SearchContext&, int, int, Move);
+        MovePicker(const Position& pos, const Search::SearchContext& ctx, int ply, int depth, Move tt_move) :
+            m_pos(pos),
+            m_ctx(ctx),
+            m_ply(ply),
+            m_depth(depth),
+            m_ttmove(tt_move)
+        {
+            if (pos.in_check<C>())
+                m_stage = Stage::EVASION_TT;
+            else
+                m_stage = (depth > 0) ? Stage::MAIN_TT : Stage::QUIESCENCE_TT;
+        };
+
         MovePicker(const Position&, const Search::SearchContext&, int, Move);
 
         /* 
@@ -83,7 +96,6 @@ class MovePicker {
                 Generate all caputres,
                 Iterate over all possible captures
         */
-        template <Color C>
         Move next() 
         {
         top: 
@@ -92,7 +104,7 @@ class MovePicker {
                 case QUIESCENCE_TT:
                 case EVASION_TT:
                     ++m_stage;
-                    if (m_ttmove != Move::none()) return m_ttmove;
+                    // if (m_ttmove != Move::none()) return m_ttmove;
                     goto top;
                 
                 case QUIESCENCE_INIT:
@@ -165,7 +177,7 @@ class MovePicker {
                     MoveList<GenType::EVASIONS, C> list(m_pos);
 
                     m_cur = m_moves;
-                    m_end_cur = m_end_generated =  score(list);
+                    m_end_cur = m_end_generated = score(list);
 
                     ++m_stage;
                     // Intentional fallthrough to the next stage
@@ -204,7 +216,7 @@ class MovePicker {
         }
 
         /* This function both scores and inserts the moves of the provided move list into the MovePicker's internal engine */
-        template <GenType type, Color C>
+        template <GenType type>
         ExtMove* score(MoveList<type, C>& list)
         {
             static_assert(type == GenType::CAPTURES || type == GenType::QUIETS || type == GenType::EVASIONS, "Incorrect type");

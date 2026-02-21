@@ -112,8 +112,11 @@ namespace Search {
 
         Transposition node = {FLAG_ALPHA, pos.get_hash(), 0, best_score, static_eval, Move::none()}; 
 
-        MovePicker picker(pos, m_ctx, ply, depth, tt_move);
-        while ((m = picker.next<C>()) != Move::none()) {
+        MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
+        // MoveList<CAPTURES, C> list(pos);
+        // for (auto& m : list) {
+        while ((m = picker.next()) != Move::none()) {
+
             pos.play<C>(m);
 
             score = -quiescence<~C, PVnode>(pos, -Bbeta, -Aalpha, depth - 1);
@@ -150,7 +153,7 @@ namespace Search {
 
         int ply = ss->ply;
         int move_count = 0;
-        int score = 0;
+        int score = 1;
         int static_eval = 0;
         int best_score = -INFTY;
         Move m = Move::none();
@@ -159,7 +162,6 @@ namespace Search {
         // If depth is below zero, dip into quiescence search
         if (depth <= 0) {
             score = quiescence<C, PVnode>(pos, Aalpha, Bbeta, depth);
-            if (score) LOG_INFO("{}", score);
             return score;
         }
 
@@ -234,17 +236,19 @@ namespace Search {
             static_eval = ss->static_eval = corrected_eval<C>(pos); 
         }
 
-        Transposition node = Transposition{FLAG_ALPHA, pos.get_hash(), (int8_t)depth, static_eval, NO_SCORE, NO_MOVE};
+        Transposition node = Transposition{FLAG_ALPHA, pos.get_hash(), (int8_t)depth, static_eval, NO_SCORE, Move::none()};
 
         bool conditional = false; 
-        MovePicker picker(pos, m_ctx, ply, depth, tt_move);
-        while ((m = picker.next<C>()) != Move::none()) {
+        MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
+        while ((m = picker.next()) != Move::none()) {
             move_count++;
             // if (depth == 5 && m.to_string() == "d7d5") { LOG_INFO("BEFORE CULPRIT {}", pos.fen()); conditional = true; }
             // else { conditional = false; }
 
-            pos.play<C>(m);
+            // if (depth == 8) LOG_INFO("move {}  pos {}", m.to_string(), pos.fen());
 
+            pos.play<C>(m);
+ 
             // if (conditional) { LOG_INFO("CULPRIT AFTER MOVE {} {}", m.to_string(), pos.fen()); }
 
             // Late move reduction 
@@ -338,7 +342,8 @@ namespace Search {
                 return 0;
             }
         }
-
+        
+        
         m_tt.push(pos.get_hash(), node);
 
         // Fail Low Node - No better move was found
@@ -391,7 +396,6 @@ namespace Search {
                 else
                     score = search<BLACK, true>(m_root, ss, alpha, beta, depth);
 
-                // if (current_depth == 7) { LOG_INFO("sc {}", score); }
 
                 if ((m_stop) ||
                     (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 

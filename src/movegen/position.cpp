@@ -61,6 +61,7 @@ std::string Position::fen() const {
 		<< (history[game_ply].entry & BLACK_OO_MASK ? "" : "k")
 		<< (history[game_ply].entry & BLACK_OOO_MASK ? "" : "q")
 		<< (history[game_ply].entry & ALL_CASTLING_MASK ? "" : "")
+		<< (" ")
 		<< (history[game_ply].epsq == NO_SQUARE ? "-" : SQSTR[history[game_ply].epsq]);
 
 	return fen.str();

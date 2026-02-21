@@ -71,7 +71,7 @@ struct UndoInfo {
 
     // The hash of the current position being saved
     uint64_t hash;
-	
+
 	Bitboard checkers;
 	Bitboard pinned;
 
@@ -79,7 +79,7 @@ struct UndoInfo {
 	
 	//This preserves the entry bitboard across moves
 	UndoInfo(const UndoInfo& prev) : 
-		entry(prev.entry), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), checkers(prev.checkers), pinned(prev.pinned) {}
+		entry(prev.entry), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), checkers(0), pinned(0) {}
 };
 
 class Position {
@@ -531,6 +531,7 @@ template<Color C>
 void Position::play(const Move m) {
 	side_to_play = ~side_to_play;
 	++game_ply;
+
 	history[game_ply] = UndoInfo(history[game_ply - 1]);
 
 	MoveFlags type = m.flags();
@@ -624,24 +625,27 @@ void Position::play(const Move m) {
     history[game_ply].hash = get_hash();
 
 	constexpr Color Them = C;
+	constexpr Color Us   = ~C;
 
-	const Bitboard us_bb = all_pieces<~C>();
+	const Bitboard us_bb = all_pieces<Us>();
 	const Bitboard them_bb = all_pieces<Them>();
 	const Bitboard all = us_bb | them_bb;
 
-	const Square our_king = bsf(bitboard_of(~C, KING));
+	const Square our_king = bsf(bitboard_of(Us, KING));
 	const Square their_king = bsf(bitboard_of(Them, KING));
 
-	const Bitboard our_diag_sliders = diagonal_sliders<~C>();
+	const Bitboard our_diag_sliders = diagonal_sliders<Us>();
 	const Bitboard their_diag_sliders = diagonal_sliders<Them>();
-	const Bitboard our_orth_sliders = orthogonal_sliders<~C>();
+	const Bitboard our_orth_sliders = orthogonal_sliders<Us>();
 	const Bitboard their_orth_sliders = orthogonal_sliders<Them>();
+
+	pinned = 0;
 
 	//Checkers of each piece type are identified by:
 	//1. Projecting attacks FROM the king square
 	//2. Intersecting this bitboard with the enemy bitboard of that piece type
 	checkers = attacks<KNIGHT>(our_king, all) & bitboard_of(Them, KNIGHT)
-		| pawn_attacks<~C>(our_king) & bitboard_of(Them, PAWN);
+		| pawn_attacks<Us>(our_king) & bitboard_of(Them, PAWN);
 	
 	//Here, we identify slider checkers and pinners simultaneously, and candidates for such pinners 
 	//and checkers are represented by the bitboard <candidates>
@@ -726,57 +730,6 @@ void Position::undo(const Move m) {
 	checkers = history[game_ply].checkers;
 	pinned   = history[game_ply].pinned;
 }
-
-template<Color Us>
-int is_in_check(Position& board) {
-	constexpr Color Them = ~Us;
-
-	const Bitboard us_bb = board.all_pieces<Us>();
-	const Bitboard them_bb = board.all_pieces<Them>();
-	const Bitboard all = us_bb | them_bb;
-
-	const Square our_king = bsf(board.bitboard_of(Us, KING));
-	const Square their_king = bsf(board.bitboard_of(Them, KING));
-
-	const Bitboard our_diag_sliders = board.diagonal_sliders<Us>();
-	const Bitboard their_diag_sliders = board.diagonal_sliders<Them>();
-	const Bitboard our_orth_sliders = board.orthogonal_sliders<Us>();
-	const Bitboard their_orth_sliders = board.orthogonal_sliders<Them>();
-
-	//General purpose bitboards for attacks, masks, etc.
-	Bitboard b1, b2, b3;
-
-	//Squares that our king cannot move to
-	Bitboard danger = 0;
-
-	//For each enemy piece, add all of its attacks to the danger bitboard
-	danger |= pawn_attacks<Them>(board.bitboard_of(Them, PAWN)) | attacks<KING>(their_king, all);
-
-	b1 = board.bitboard_of(Them, KNIGHT);
-	while (b1) danger |= attacks<KNIGHT>(pop_lsb(&b1), all);
-
-	b1 = their_diag_sliders;
-	//all ^ SQUARE_BB[our_king] is written to prevent the king from moving to squares which are 'x-rayed'
-	//by enemy bishops and queens
-	while (b1) danger |= attacks<BISHOP>(pop_lsb(&b1), all ^ SQUARE_BB[our_king]);
-
-	b1 = their_orth_sliders;
-	//all ^ SQUARE_BB[our_king] is written to prevent the king from moving to squares which are 'x-rayed'
-	//by enemy rooks and queens
-	while (b1) danger |= attacks<ROOK>(pop_lsb(&b1), all ^ SQUARE_BB[our_king]);
-
-	//The king can move to all of its surrounding squares, except ones that are attacked, and
-	//ones that have our own pieces on them
-	b1 = attacks<KING>(our_king, all) & ~(us_bb | danger);
-
-	int count = 0;
-	while (b1) {
-		count += b1 & 1;
-		b1 >>= 1;
-	}
-	return count;
-}
-
 
 //Generates all legal moves in a position for the given side. Advances the move pointer and returns it.
 template<Color Us>
@@ -1126,8 +1079,12 @@ Move* Position::generate(Move* list) const
 	b1 = attacks<KING>(our_king, all) & ~(us_bb | danger);
 
 	// Only generate the type of moves that we are interested in
-	if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS) list = make<QUIET>(our_king, b1 & ~them_bb, list);
-	else if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) list = make<CAPTURE>(our_king, b1 & them_bb, list);
+	if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS) {
+		list = make<QUIET>(our_king, b1 & ~them_bb, list);
+	}
+	if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) {
+		list = make<CAPTURE>(our_king, b1 & them_bb, list);
+	}
 
 	//The capture mask filters destination squares to those that contain an enemy piece that is checking the 
 	//king and must be captured
@@ -1139,6 +1096,31 @@ Move* Position::generate(Move* list) const
 	
 	//A general purpose square for storing destinations, etc.
 	Square s;
+
+	// Bitboard checkers = 0;
+	// Bitboard pinned = 0;
+
+	// //Checkers of each piece type are identified by:
+	// //1. Projecting attacks FROM the king square
+	// //2. Intersecting this bitboard with the enemy bitboard of that piece type
+	// checkers = attacks<KNIGHT>(our_king, all) & bitboard_of(Them, KNIGHT)
+	// 	| pawn_attacks<Us>(our_king) & bitboard_of(Them, PAWN);
+	
+	// //Here, we identify slider checkers and pinners simultaneously, and candidates for such pinners 
+	// //and checkers are represented by the bitboard <candidates>
+	// Bitboard candidates = attacks<ROOK>(our_king, them_bb) & their_orth_sliders
+	// 	| attacks<BISHOP>(our_king, them_bb) & their_diag_sliders;
+
+	// while (candidates) {
+	// 	s = pop_lsb(&candidates);
+	// 	b1 = SQUARES_BETWEEN_BB[our_king][s] & us_bb;
+		
+	// 	//Do the squares in between the enemy slider and our king contain any of our pieces?
+	// 	//If not, add the slider to the checker bitboard
+	// 	if (b1 == 0) checkers ^= SQUARE_BB[s];
+	// 	//If there is only one of our pieces between them, add our piece to the pinned bitboard 
+	// 	else if ((b1 & b1 - 1) == 0) pinned ^= b1;
+	// }
 
 	//This makes it easier to mask pieces
 	const Bitboard not_pinned = ~pinned;
@@ -1243,21 +1225,19 @@ Move* Position::generate(Move* list) const
 		}
 
 		//For each pinned rook, bishop or queen...
-		b1 = ~(not_pinned | bitboard_of(Us, KNIGHT));
+		b1 = pinned & ~bitboard_of(Us, KNIGHT) & ~bitboard_of(Us, PAWN);
 		while (b1) {
 			s = pop_lsb(&b1);
 			
 			//...only include attacks that are aligned with our king, since pinned pieces
 			//are constrained to move in this direction only
 			b2 = attacks(type_of(board[s]), s, all) & LINE[our_king][s];
-			if constexpr (type == GenType::QUIETS)
-				list = make<QUIET>(s, b2 & quiet_mask, list);
-			if constexpr (type == GenType::CAPTURES)
-				list = make<CAPTURE>(s, b2 & capture_mask, list);
+			if constexpr (type == GenType::QUIETS) list = make<QUIET>(s, b2 & quiet_mask, list);
+			if constexpr (type == GenType::CAPTURES) list = make<CAPTURE>(s, b2 & capture_mask, list);
 		}
 
 		//For each pinned pawn...
-		b1 = ~not_pinned & bitboard_of(Us, PAWN);
+		b1 = pinned & bitboard_of(Us, PAWN);
 		while (b1) {
 			s = pop_lsb(&b1);
 
@@ -1298,9 +1278,9 @@ Move* Position::generate(Move* list) const
 	while (b1) {
 		s = pop_lsb(&b1);
 		b2 = attacks<KNIGHT>(s, all);
-		if constexpr (type == GenType::QUIETS)
+		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS)
 			list = make<QUIET>(s, b2 & quiet_mask, list);
-		if constexpr (type == GenType::CAPTURES)
+		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS)
 			list = make<CAPTURE>(s, b2 & capture_mask, list);
 	}
 
@@ -1309,9 +1289,9 @@ Move* Position::generate(Move* list) const
 	while (b1) {
 		s = pop_lsb(&b1);
 		b2 = attacks<BISHOP>(s, all);
-		if constexpr (type == GenType::QUIETS)
+		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS)
 			list = make<QUIET>(s, b2 & quiet_mask, list);
-		if constexpr (type == GenType::CAPTURES)
+		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS)
 			list = make<CAPTURE>(s, b2 & capture_mask, list);
 	}
 
@@ -1320,16 +1300,16 @@ Move* Position::generate(Move* list) const
 	while (b1) {
 		s = pop_lsb(&b1);
 		b2 = attacks<ROOK>(s, all);
-		if constexpr (type == GenType::QUIETS)
+		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS)
 			list = make<QUIET>(s, b2 & quiet_mask, list);
-		if constexpr (type == GenType::CAPTURES)
+		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS)
 			list = make<CAPTURE>(s, b2 & capture_mask, list);
 	}
 
 	//b1 contains non-pinned pawns which are not on the last rank
 	b1 = bitboard_of(Us, PAWN) & not_pinned & ~MASK_RANK[relative_rank<Us>(RANK7)];
 	
-	if constexpr (type == GenType::QUIETS) {
+	if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS) {
 		//Single pawn pushes
 		b2 = shift<relative_dir<Us>(NORTH)>(b1) & ~all;
 		
@@ -1351,7 +1331,7 @@ Move* Position::generate(Move* list) const
 		}
 	}
 
-	if constexpr (type == GenType::CAPTURES) {
+	if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) {
 		//Pawn captures
 		b2 = shift<relative_dir<Us>(NORTH_WEST)>(b1) & capture_mask;
 		b3 = shift<relative_dir<Us>(NORTH_EAST)>(b1) & capture_mask;
@@ -1371,7 +1351,7 @@ Move* Position::generate(Move* list) const
 	b1 = bitboard_of(Us, PAWN) & not_pinned & MASK_RANK[relative_rank<Us>(RANK7)];
 
 	if (b1) {
-		if constexpr (type == GenType::QUIETS) {
+		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS) {
 			//Quiet promotions
 			b2 = shift<relative_dir<Us>(NORTH)>(b1) & quiet_mask;
 			while (b2) {
@@ -1384,7 +1364,7 @@ Move* Position::generate(Move* list) const
 			}
 		}
 
-		if constexpr (type == GenType::CAPTURES) {
+		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) {
 			//Promotion captures
 			b2 = shift<relative_dir<Us>(NORTH_WEST)>(b1) & capture_mask;
 			b3 = shift<relative_dir<Us>(NORTH_EAST)>(b1) & capture_mask;

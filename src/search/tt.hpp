@@ -4,7 +4,7 @@
 
 #include <tuple>
 
-#include "../movegen/move.hpp"
+#include "movegen/move.hpp"
 #include "log.hpp"
 
 #define FLAG_EMPTY 0
@@ -29,7 +29,7 @@ struct Transposition {
     flags(f), hash(h), depth(d), score(sc), move(m), eval(e) {};
 };
 
-#define NO_HASH_ENTRY Transposition { FLAG_EMPTY, 0, 0, NO_EVAL, NO_SCORE, NO_MOVE }
+#define NO_HASH_ENTRY Transposition { FLAG_EMPTY, 0, 0, NO_EVAL, NO_SCORE, Move::none() }
 #define DEFAULT_CAPACITY (1 << 20)
 #define MAX_CAPACITY (1 << 22)
 
