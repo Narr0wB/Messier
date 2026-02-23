@@ -129,8 +129,6 @@ void Position::reset()
 	game_ply = 0;
 	hash = 0;
 	side_to_play = WHITE;
-	pinned = 0;
-	checkers = 0;
 
 	for (int i = 0; i < NPIECES; ++i) {
 		piece_bb[i] = 0;

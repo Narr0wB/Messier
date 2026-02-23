@@ -10,15 +10,11 @@ int main(int argc, char** argv)
 	initialise_all_databases();
     zobrist::initialise_zobrist_keys();
 
+	// Check this -> Pos: rn1q3k/ppp3pp/2n5/3B4/4P3/P3r3/1PP4P/RN2K2R w KQ - 0 16 Move: f2e3
 	// Position pos;
-	// pos.set(START_POSITION, pos);
-	// pos.play<WHITE>(Move::from_string("h2h4"));
-	// pos.play<BLACK>(Move::from_string("b8a6"));
-	// pos.play<WHITE>(Move::from_string("g2g4"));
-	// pos.play<BLACK>(Move::from_string("a6b4"));
-	// pos.play<WHITE>(Move::from_string("f2f4"));
-
-	// LOG_INFO("POS {}", pos.fen());
+	// pos.set("2R1k2r/7p/p4pp1/3Q4/8/4PN2/PP3PPP/6K1 b - - 0 24", pos);
+	// MoveList<EVASIONS, BLACK> list(pos);
+	// for (auto m : list) LOG_INFO("{} {}", list.size(), m.to_string());
 
 	// return 0;
 

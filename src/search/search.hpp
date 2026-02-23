@@ -98,6 +98,7 @@ namespace Search {
                 m_tt(table)
             {}
             ~Worker() { kill(); }
+		
 
             WorkerState get_state();
             void run(Position& pos, const SearchConfig& cfg);

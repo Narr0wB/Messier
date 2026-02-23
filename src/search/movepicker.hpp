@@ -104,6 +104,7 @@ class MovePicker {
                 case QUIESCENCE_TT:
                 case EVASION_TT:
                     ++m_stage;
+                    // TODO: FIX THE TT MOVE
                     // if (m_ttmove != Move::none()) return m_ttmove;
                     goto top;
                 
@@ -184,8 +185,10 @@ class MovePicker {
                 }
 
                 case QUIESCENCE:
-                case EVASION: 
-                    return select([]() { return true; });
+                case EVASION: {
+                    Move m = select([]() { return true; });
+                    return m;
+                }
             }
 
             assert(false);
@@ -208,7 +211,9 @@ class MovePicker {
         template <typename Pred>
         Move select(Pred predicate) {
             for (; m_cur < m_end_cur; ++m_cur) {
-                if (*m_cur != m_ttmove && predicate())
+                // TODO: reapply tt_move check
+                // if (*m_cur != m_ttmove && predicate())
+                if (predicate())
                     return *m_cur++;
             }
             
@@ -254,10 +259,8 @@ class MovePicker {
                 else {
                     // GenType::EVASIONS
 
-                    if (m.is_capture())
-                        m.score = piece_value[pt] + (1 << 20);
-                    else 
-                        m.score = m_ctx.history_moves[from][to];
+                    if (m.is_capture()) m.score = piece_value[pt] + (1 << 20);
+                    else m.score = m_ctx.history_moves[from][to];
                 }
             }
 

@@ -30,8 +30,8 @@ struct Transposition {
 };
 
 #define NO_HASH_ENTRY Transposition { FLAG_EMPTY, 0, 0, NO_EVAL, NO_SCORE, Move::none() }
-#define DEFAULT_CAPACITY (1 << 20)
-#define MAX_CAPACITY (1 << 22)
+#define DEFAULT_CAPACITY (1 << 25)
+#define MAX_CAPACITY (1 << 26)
 
 class TTable {
     private:
@@ -68,55 +68,5 @@ class TTable {
         void push(uint64_t hash, const Transposition& t);
         std::tuple<bool, Transposition> probe(uint64_t hash);
 };
-
-// class TranspositionTable {
-//     private:
-//         Transposition* m_DataArray;
-
-//         // Maximum number of transpositions that can be stored in the table
-//         uint32_t m_Capacity;
-
-//         // Number of transpositions currently stored in the table
-//         size_t m_Size;
-
-//     public:
-//         // Transposition table hits
-//         int hits;
-
-//     public:
-//         TranspositionTable(uint32_t capacity) : m_Capacity(capacity), m_Size(0), hits(0) {
-//             m_DataArray = new Transposition[capacity];
-//             std::memset(m_DataArray, 0, sizeof(Transposition) * m_Capacity);
-//         }
-
-//         TranspositionTable() {};
-
-//         // Move constructor
-//         TranspositionTable(TranspositionTable&& tt) : 
-//         m_DataArray(tt.m_DataArray),
-//         m_Size(tt.m_Size),
-//         hits(tt.hits) {}
-
-//         // Move assignment operator
-//         inline TranspositionTable& operator=(TranspositionTable&& tt) 
-//         {
-//             m_DataArray = (tt.m_DataArray);
-//             m_Size = (tt.m_Size);
-//             hits = (tt.hits);
-
-//             return *this;
-//         }
-
-//         ~TranspositionTable() {
-//             delete m_DataArray;
-//         }
-
-//         inline uint32_t size() { return m_Size; };
-//         void realloc(size_t numberOfTranspositions);
-//         void clear();
-
-//         void push_position(Transposition t);
-//         Transposition probe_hash(uint64_t hash);
-// };
 
 #endif

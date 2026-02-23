@@ -25,6 +25,7 @@ namespace Search {
 
             lock.lock();
             m_state = WorkerState::IDLE;
+            lock.unlock();
         }
     }
 
@@ -52,9 +53,13 @@ namespace Search {
 
     void Worker::kill() {
         stop();
+
         std::unique_lock<std::mutex> lock(m_mutex);
         m_state = WorkerState::DEAD;
+        lock.unlock();
+
         m_cv.notify_one();
+
         m_thread.join();
     }
 
@@ -77,7 +82,8 @@ namespace Search {
             return 0;
         }
         
-        auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
+        uint64_t hash = pos.get_hash();
+        auto [tt_hit, tte] = m_tt.probe(hash);
         Move tt_move = tte.move;
         int tt_score = tte.score;
         uint8_t tt_bound = tte.flags;
@@ -85,8 +91,7 @@ namespace Search {
 
         // If we are not in a pv node, and we got a useful score from the TT, return early
         // NOTE: we do not check if the tte depth is greater (or equal) than the current depth because in quiescence any depth IS greater or equal than 0 
-        if (!PVnode 
-            && tt_hit 
+        if (tt_hit 
             && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
             ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
             ||   (tt_bound == FLAG_EXACT))) 
@@ -95,8 +100,8 @@ namespace Search {
         }
 
         int static_eval = corrected_eval<C>(pos); 
-        int score = static_eval;
-        int best_score = score;
+        int best_score = static_eval;
+        int score = 0;
         int ply = -depth;
         Move m = Move::none();
 
@@ -105,18 +110,13 @@ namespace Search {
             Aalpha = best_score;
         }
         
-        if (depth <= -m_cfg.quiescence_depth) return best_score;
+        if (depth <= -m_cfg.quiescence_depth) return static_eval;
 
         if (pos.checkmate<C>()) return -MATE_SCORE;
-        if (pos.stalemate<C>()) return 0;
-
-        Transposition node = {FLAG_ALPHA, pos.get_hash(), 0, best_score, static_eval, Move::none()}; 
+        else if (pos.stalemate<C>()) return 0;
 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
-        // MoveList<CAPTURES, C> list(pos);
-        // for (auto& m : list) {
         while ((m = picker.next()) != Move::none()) {
-
             pos.play<C>(m);
 
             score = -quiescence<~C, PVnode>(pos, -Bbeta, -Aalpha, depth - 1);
@@ -125,15 +125,11 @@ namespace Search {
 
             if (score > best_score) {
                 best_score = score;
-                node.score = best_score;
-                node.move = m;
 
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
-                    node.flags = FLAG_EXACT;
 
                     if (best_score >= Bbeta) {
-                        node.flags = FLAG_BETA;
                         return best_score;
                     }
                 }
@@ -153,9 +149,10 @@ namespace Search {
 
         int ply = ss->ply;
         int move_count = 0;
-        int score = 1;
+        int score = 0;
         int static_eval = 0;
         int best_score = -INFTY;
+        uint64_t hash = pos.get_hash();
         Move m = Move::none();
         m_ctx.pv_table_len[ply] = ply;
 
@@ -186,7 +183,7 @@ namespace Search {
                     us to this position again, triggering a three-fold repetition. We then assign the value 0 to this position (it's a draw)
                 */
 
-                if (pos.get_hash() == pos.history[i].hash) return 0;
+                if (hash == pos.history[i].hash) return 0;
 
                 // if (pos.get_hash() == pos.history[i].hash &&
                 //     (i > pos.ply() - ply || ++repetitions == 2)) {
@@ -207,15 +204,14 @@ namespace Search {
         //     return static_eval + piece_value[QUEEN];   
         // }
 
-        auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
+        auto [tt_hit, tte] = m_tt.probe(hash);
         Move tt_move = tte.move;
         int tt_score = tte.score;
         uint8_t tt_bound = tte.flags;
         int8_t tt_depth = tte.depth;
 
         // If we are not in a pv node, and we got a useful score from the TT, return early
-        if (!PVnode 
-            && tt_hit 
+        if (tt_hit 
             && tt_depth >= depth
             && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
             ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
@@ -236,21 +232,15 @@ namespace Search {
             static_eval = ss->static_eval = corrected_eval<C>(pos); 
         }
 
-        Transposition node = Transposition{FLAG_ALPHA, pos.get_hash(), (int8_t)depth, static_eval, NO_SCORE, Move::none()};
+        Transposition node = Transposition{FLAG_ALPHA, hash, (int8_t)depth, static_eval, NO_SCORE, Move::none()};
 
-        bool conditional = false; 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
         while ((m = picker.next()) != Move::none()) {
             move_count++;
-            // if (depth == 5 && m.to_string() == "d7d5") { LOG_INFO("BEFORE CULPRIT {}", pos.fen()); conditional = true; }
-            // else { conditional = false; }
 
-            // if (depth == 8) LOG_INFO("move {}  pos {}", m.to_string(), pos.fen());
 
             pos.play<C>(m);
  
-            // if (conditional) { LOG_INFO("CULPRIT AFTER MOVE {} {}", m.to_string(), pos.fen()); }
-
             // Late move reduction 
             // if (depth >= 3 
             //     && move_count > 3 
@@ -278,22 +268,14 @@ namespace Search {
             //     score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
             // }
 
-            // if (depth == 6) { LOG_INFO("INSIDE BEFORE (m = {}) {}", m.to_string(), m_root.fen()); }
             score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
-            // if (depth == 6) { LOG_INFO("INSIDE AFTER (m = {}) {}", m.to_string(), m_root.fen()); }
-
-            // if (conditional) { LOG_INFO("CULPRIT AFTER SEARCH {} {}", m.to_string(), pos.fen()); }
 
             pos.undo<C>(m);
 
-            // if (conditional) { LOG_INFO("CULPRIT AFTER UNDO {} {}", m.to_string(), pos.fen()); }
-
-            // if (pos.fen() == "rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQpBNR b KQkq-") { LOG_INFO("CULPRIT m = {}, depth = {}", m.to_string(), depth); }
-
             if (score > best_score) {
                 best_score = score;
+                node.score = score;
                 node.move = m;
-                node.score = best_score;
 
                 // We have found a move that is better than the current alpha
                 if (best_score > Aalpha) {
@@ -328,7 +310,7 @@ namespace Search {
                         }
 
                         node.flags = FLAG_BETA;
-                        m_tt.push(pos.get_hash(), node);
+                        m_tt.push(hash, node);
 
                         return best_score;
                     }
@@ -343,8 +325,7 @@ namespace Search {
             }
         }
         
-        
-        m_tt.push(pos.get_hash(), node);
+        m_tt.push(hash, node);
 
         // Fail Low Node - No better move was found
         return best_score;

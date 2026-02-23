@@ -72,14 +72,11 @@ struct UndoInfo {
     // The hash of the current position being saved
     uint64_t hash;
 
-	Bitboard checkers;
-	Bitboard pinned;
-
-	constexpr UndoInfo() : entry(0), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), checkers(0), pinned(0) {}
+	constexpr UndoInfo() : entry(0), captured(NO_PIECE), epsq(NO_SQUARE), hash(0) {}
 	
 	//This preserves the entry bitboard across moves
 	UndoInfo(const UndoInfo& prev) : 
-		entry(prev.entry), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), checkers(0), pinned(0) {}
+		entry(prev.entry), captured(NO_PIECE), epsq(NO_SQUARE), hash(0) {}
 };
 
 class Position {
@@ -105,16 +102,15 @@ public:
 	
 	//The bitboard of enemy pieces that are currently attacking the king, updated whenever generate_moves()
 	//is called
-	Bitboard checkers;
+	// Bitboard checkers;
 	
 	//The bitboard of pieces that are currently pinned to the king by enemy sliders, updated whenever 
 	//generate_moves() is called
-	Bitboard pinned;
+	// Bitboard pinned;
 	
 	
 	Position() : piece_bb{ 0 }, side_to_play(WHITE), game_ply(0), board{}, 
-		hash(0), pinned(0), checkers(0) {
-		
+		hash(0) {
 		//Sets all squares on the board as empty
 		for (int i = 0; i < 64; i++) board[i] = NO_PIECE;
 		history[0] = UndoInfo();
@@ -165,14 +161,6 @@ public:
 
 	template<Color C> inline bool in_check() const {
 		return attackers<~C>(bsf(bitboard_of(C, KING)), all_pieces<WHITE>() | all_pieces<BLACK>());
-	}
-
-	template<Color C> inline bool gives_check_to(const Move& m) {
-		play<~C>(m);
-		bool check = in_check<C>();
-		undo<~C>(m);
-
-		return check;
 	}
 
 	template<Color C> bool checkmate() const;
@@ -424,7 +412,7 @@ bool Position::checkmate() const {
 	if (board[checker_square] == make_piece(Them, PAWN)) {
 		//If the checker is a pawn, we must check for e.p. moves that can capture it
 			//This evaluates to true if the checking piece is the one which just double pushed
-		if (checkers == shift<relative_dir<Us>(SOUTH)>(SQUARE_BB[history[game_ply].epsq])) {
+		if (temp_checkers == shift<relative_dir<Us>(SOUTH)>(SQUARE_BB[history[game_ply].epsq])) {
 			//b1 contains our pawns that can capture the checker e.p.
 			b1 = pawn_attacks<Them>(history[game_ply].epsq) & bitboard_of(Us, PAWN) & not_pinned;
 
@@ -623,51 +611,6 @@ void Position::play(const Move m) {
 	}
 
     history[game_ply].hash = get_hash();
-
-	constexpr Color Them = C;
-	constexpr Color Us   = ~C;
-
-	const Bitboard us_bb = all_pieces<Us>();
-	const Bitboard them_bb = all_pieces<Them>();
-	const Bitboard all = us_bb | them_bb;
-
-	const Square our_king = bsf(bitboard_of(Us, KING));
-	const Square their_king = bsf(bitboard_of(Them, KING));
-
-	const Bitboard our_diag_sliders = diagonal_sliders<Us>();
-	const Bitboard their_diag_sliders = diagonal_sliders<Them>();
-	const Bitboard our_orth_sliders = orthogonal_sliders<Us>();
-	const Bitboard their_orth_sliders = orthogonal_sliders<Them>();
-
-	pinned = 0;
-
-	//Checkers of each piece type are identified by:
-	//1. Projecting attacks FROM the king square
-	//2. Intersecting this bitboard with the enemy bitboard of that piece type
-	checkers = attacks<KNIGHT>(our_king, all) & bitboard_of(Them, KNIGHT)
-		| pawn_attacks<Us>(our_king) & bitboard_of(Them, PAWN);
-	
-	//Here, we identify slider checkers and pinners simultaneously, and candidates for such pinners 
-	//and checkers are represented by the bitboard <candidates>
-	Bitboard candidates = attacks<ROOK>(our_king, them_bb) & their_orth_sliders
-		| attacks<BISHOP>(our_king, them_bb) & their_diag_sliders;
-
-	Square s = Square::NO_SQUARE;
-	Bitboard b1 = 0;
-
-	while (candidates) {
-		s = pop_lsb(&candidates);
-		b1 = SQUARES_BETWEEN_BB[our_king][s] & us_bb;
-		
-		//Do the squares in between the enemy slider and our king contain any of our pieces?
-		//If not, add the slider to the checker bitboard
-		if (b1 == 0) checkers ^= SQUARE_BB[s];
-		//If there is only one of our pieces between them, add our piece to the pinned bitboard 
-		else if ((b1 & b1 - 1) == 0) pinned ^= b1;
-	}
-
-	history[game_ply].checkers = checkers;
-	history[game_ply].pinned   = pinned;
 }
 
 //Undos a move in the current position, rolling it back to the previous position
@@ -726,9 +669,6 @@ void Position::undo(const Move m) {
 
 	side_to_play = ~side_to_play;
 	--game_ply;
-
-	checkers = history[game_ply].checkers;
-	pinned   = history[game_ply].pinned;
 }
 
 //Generates all legal moves in a position for the given side. Advances the move pointer and returns it.
@@ -787,6 +727,31 @@ Move* Position::generate_legals(Move* list) const
 	
 	//A general purpose square for storing destinations, etc.
 	Square s;
+
+	Bitboard checkers = 0;
+	Bitboard pinned = 0;
+
+	//Checkers of each piece type are identified by:
+	//1. Projecting attacks FROM the king square
+	//2. Intersecting this bitboard with the enemy bitboard of that piece type
+	checkers = attacks<KNIGHT>(our_king, all) & bitboard_of(Them, KNIGHT)
+		| pawn_attacks<Us>(our_king) & bitboard_of(Them, PAWN);
+	
+	//Here, we identify slider checkers and pinners simultaneously, and candidates for such pinners 
+	//and checkers are represented by the bitboard <candidates>
+	Bitboard candidates = attacks<ROOK>(our_king, them_bb) & their_orth_sliders
+		| attacks<BISHOP>(our_king, them_bb) & their_diag_sliders;
+
+	while (candidates) {
+		s = pop_lsb(&candidates);
+		b1 = SQUARES_BETWEEN_BB[our_king][s] & us_bb;
+		
+		//Do the squares in between the enemy slider and our king contain any of our pieces?
+		//If not, add the slider to the checker bitboard
+		if (b1 == 0) checkers ^= SQUARE_BB[s];
+		//If there is only one of our pieces between them, add our piece to the pinned bitboard 
+		else if ((b1 & b1 - 1) == 0) pinned ^= b1;
+	}
 
 	//This makes it easier to mask pieces
 	const Bitboard not_pinned = ~pinned;
@@ -1097,30 +1062,30 @@ Move* Position::generate(Move* list) const
 	//A general purpose square for storing destinations, etc.
 	Square s;
 
-	// Bitboard checkers = 0;
-	// Bitboard pinned = 0;
+	Bitboard checkers = 0;
+	Bitboard pinned = 0;
 
-	// //Checkers of each piece type are identified by:
-	// //1. Projecting attacks FROM the king square
-	// //2. Intersecting this bitboard with the enemy bitboard of that piece type
-	// checkers = attacks<KNIGHT>(our_king, all) & bitboard_of(Them, KNIGHT)
-	// 	| pawn_attacks<Us>(our_king) & bitboard_of(Them, PAWN);
+	//Checkers of each piece type are identified by:
+	//1. Projecting attacks FROM the king square
+	//2. Intersecting this bitboard with the enemy bitboard of that piece type
+	checkers = attacks<KNIGHT>(our_king, all) & bitboard_of(Them, KNIGHT)
+		| pawn_attacks<Us>(our_king) & bitboard_of(Them, PAWN);
 	
-	// //Here, we identify slider checkers and pinners simultaneously, and candidates for such pinners 
-	// //and checkers are represented by the bitboard <candidates>
-	// Bitboard candidates = attacks<ROOK>(our_king, them_bb) & their_orth_sliders
-	// 	| attacks<BISHOP>(our_king, them_bb) & their_diag_sliders;
+	//Here, we identify slider checkers and pinners simultaneously, and candidates for such pinners 
+	//and checkers are represented by the bitboard <candidates>
+	Bitboard candidates = attacks<ROOK>(our_king, them_bb) & their_orth_sliders
+		| attacks<BISHOP>(our_king, them_bb) & their_diag_sliders;
 
-	// while (candidates) {
-	// 	s = pop_lsb(&candidates);
-	// 	b1 = SQUARES_BETWEEN_BB[our_king][s] & us_bb;
+	while (candidates) {
+		s = pop_lsb(&candidates);
+		b1 = SQUARES_BETWEEN_BB[our_king][s] & us_bb;
 		
-	// 	//Do the squares in between the enemy slider and our king contain any of our pieces?
-	// 	//If not, add the slider to the checker bitboard
-	// 	if (b1 == 0) checkers ^= SQUARE_BB[s];
-	// 	//If there is only one of our pieces between them, add our piece to the pinned bitboard 
-	// 	else if ((b1 & b1 - 1) == 0) pinned ^= b1;
-	// }
+		//Do the squares in between the enemy slider and our king contain any of our pieces?
+		//If not, add the slider to the checker bitboard
+		if (b1 == 0) checkers ^= SQUARE_BB[s];
+		//If there is only one of our pieces between them, add our piece to the pinned bitboard 
+		else if ((b1 & b1 - 1) == 0) pinned ^= b1;
+	}
 
 	//This makes it easier to mask pieces
 	const Bitboard not_pinned = ~pinned;
@@ -1451,6 +1416,10 @@ Move* Position::generate_legals_for(Square sq, Move* list)
 		list = make<QUIET>(our_king, b1 & ~them_bb, list);
 		list = make<CAPTURE>(our_king, b1 & them_bb, list);
 	}
+
+	Bitboard checkers = 0;
+	Bitboard pinned   = 0;
+
 	//Checkers of each piece type are identified by:
 	//1. Projecting attacks FROM the king square
 	//2. Intersecting this bitboard with the enemy bitboard of that piece type

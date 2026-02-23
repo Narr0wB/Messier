@@ -87,6 +87,7 @@ namespace Engine {
 			// Parse the command
 			UCI_parse_command(command);
 		}
+
 	}
 
 	void Engine::UCI_parse_command(const std::string& command) 
