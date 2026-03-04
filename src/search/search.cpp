@@ -235,10 +235,10 @@ namespace Search {
         {
             m_info.tt_hits++;
             if (tt_bound == FLAG_ALPHA && tt_score <= Aalpha) {
-                // return tt_score;
+                return tt_score;
             }
             else if (tt_bound == FLAG_BETA && tt_score >= Bbeta) {
-                // return tt_score;
+                return tt_score;
             }
             else if (tt_bound == FLAG_EXACT) {
                 // if (PVnode && tt_score > Aalpha) {
@@ -249,7 +249,7 @@ namespace Search {
                 //     m_ctx.pv_table_len[ply] = m_ctx.pv_table_len[ply + 1];
                 // }
 
-                // return tt_score;
+                return tt_score;
             }
         }
 
