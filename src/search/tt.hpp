@@ -29,7 +29,7 @@ struct Transposition {
     flags(f), hash(h), depth(d), score(sc), move(m), eval(e) {};
 };
 
-#define NO_HASH_ENTRY Transposition { FLAG_EMPTY, 0, 0, NO_EVAL, NO_SCORE, Move::none() }
+#define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_EVAL, NO_SCORE, Move::none() }
 #define DEFAULT_CAPACITY (1 << 25)
 #define MAX_CAPACITY (1 << 26)
 
@@ -38,13 +38,11 @@ class TTable {
         std::vector<Transposition> m_map;
         size_t m_capacity;
         size_t m_stored;
-        uint64_t m_hits;
     
     public:
         TTable(size_t capacity) :
             m_capacity(capacity),
-            m_stored(0),
-            m_hits(0)
+            m_stored(0)
         {
             if (capacity < MAX_CAPACITY)
                 m_map.resize(capacity);
@@ -52,15 +50,10 @@ class TTable {
                 m_map.resize(MAX_CAPACITY);
         }
 
-        TTable() :
-            m_capacity(DEFAULT_CAPACITY),
-            m_stored(0),
-            m_hits(0)
-        {}
+        TTable() : m_capacity(DEFAULT_CAPACITY), m_stored(0) {};
 
         inline size_t stored() { return m_stored; }
         inline size_t capacity() { return m_capacity; }
-        inline uint64_t hits() { return m_hits; }
 
         void resize(size_t new_capacity);
         void clear();

@@ -70,10 +70,10 @@ namespace Search {
 
 
     template <Color C, bool PVnode>
-    int Worker::quiescence(Position& pos, int Aalpha, int Bbeta, int depth) 
+    int Worker::quiescence(Position& pos, SearchStack* ss, int Aalpha, int Bbeta) 
     {
-        m_info.nodes++;
         m_info.qnodes++;
+        m_info.nodes++;
 
         if ((m_stop) ||
             (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
@@ -84,6 +84,7 @@ namespace Search {
         
         uint64_t hash = pos.get_hash();
         auto [tt_hit, tte] = m_tt.probe(hash);
+        int tt_eval = tte.eval;
         Move tt_move = tte.move;
         int tt_score = tte.score;
         uint8_t tt_bound = tte.flags;
@@ -96,44 +97,57 @@ namespace Search {
             ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
             ||   (tt_bound == FLAG_EXACT))) 
         {
+            m_info.tt_hits++;
             return tt_score;
         }
 
-        int static_eval = corrected_eval<C>(pos); 
-        int best_score = static_eval;
+        int best_score = -INFTY;
         int score = 0;
-        int ply = -depth;
+        int move_count = 0;
+        bool in_check = pos.in_check<C>();
         Move m = Move::none();
 
-        if (best_score > Aalpha) {
+        if (!pos.in_check<C>()) {
+            // Stand pat, check if current position is already better than Beta (or atleast better than alfa)
+            int static_eval = tt_hit ? tt_eval : corrected_eval<C>(pos); 
+            best_score = static_eval;
             if (best_score >= Bbeta) return best_score;
-            Aalpha = best_score;
+            if (best_score > Aalpha) Aalpha = best_score;
         }
         
-        if (depth <= -m_cfg.quiescence_depth) return static_eval;
+        if (ss->ply >= MAX_PLY) return best_score != -INFTY ? best_score : corrected_eval<C>(pos);
 
-        if (pos.checkmate<C>()) return -MATE_SCORE;
-        else if (pos.stalemate<C>()) return 0;
-
-        MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
+        MovePicker<C> picker(pos, m_ctx, ss->ply, -1, tt_move);
         while ((m = picker.next()) != Move::none()) {
+            move_count++;
+            if (!in_check) {
+                if (pos.see<C>(m.to()) < 0) continue;
+
+                if (!m.is_promotion() && move_count > 4) continue;
+            }  
+
             pos.play<C>(m);
 
-            score = -quiescence<~C, PVnode>(pos, -Bbeta, -Aalpha, depth - 1);
+            score = -quiescence<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha);
 
             pos.undo<C>(m);
 
             if (score > best_score) {
                 best_score = score;
 
-                if (best_score > Aalpha) {
+                if (score > Aalpha) {
                     Aalpha = best_score;
 
-                    if (best_score >= Bbeta) {
-                        return best_score;
+                    if (score >= Bbeta) {
+                        return score;
                     }
                 }
             }
+        }
+
+        // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
+        if (in_check && best_score == -INFTY) {
+            return -MATE_SCORE;
         }
 
         return best_score;
@@ -158,13 +172,13 @@ namespace Search {
 
         // If depth is below zero, dip into quiescence search
         if (depth <= 0) {
-            score = quiescence<C, PVnode>(pos, Aalpha, Bbeta, depth);
+            score = quiescence<C, PVnode>(pos, ss, Aalpha, Bbeta);
             return score;
         }
 
         assert(-INFTY <= Aalpha && Aalpha < Bbeta && Bbeta <= INFTY);
         assert(0 < depth && depth < MAX_DEPTH + 1);
-        assert(PVnode || (Aalpha == Bbeta - 1));
+        // assert(PVnode || (Aalpha == Bbeta - 1));
 
         // If out of time or hit any other constraints then exit the search
         if ((m_stop) ||
@@ -174,8 +188,8 @@ namespace Search {
             return 0;
         }
 
+
         if (ply != 0) {
-            int repetitions = 0;
             for (int i = pos.ply() - 2; i >= 0; i -= 2) {
                 /*
                     If we find, in our linear board history, the current position, then we have proof that there exists a path (a sequence of moves)
@@ -184,11 +198,6 @@ namespace Search {
                 */
 
                 if (hash == pos.history[i].hash) return 0;
-
-                // if (pos.get_hash() == pos.history[i].hash &&
-                //     (i > pos.ply() - ply || ++repetitions == 2)) {
-                //     return 0;
-                // }
             }
 
             // Mate distance pruning 
@@ -197,50 +206,75 @@ namespace Search {
             // if (alpha >= beta)
             //     return alpha;
         }
-        
-        // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a queen, is still under alpha then 
-        // prune this node by returning the static evaluation  
-        // if (depth == 1 && !ctx->board.in_check<C>() && static_eval + piece_value[QUEEN] < Aalpha) {
-        //     return static_eval + piece_value[QUEEN];   
-        // }
 
         auto [tt_hit, tte] = m_tt.probe(hash);
+        int tt_eval = tte.eval;
         Move tt_move = tte.move;
         int tt_score = tte.score;
         uint8_t tt_bound = tte.flags;
         int8_t tt_depth = tte.depth;
 
+        // if (tt_hit) {
+        //     MoveList<LEGAL, C> l(pos);
+        //     bool found = false;
+        //     for (auto mv : l) {
+        //         if (mv == tt_move) {
+        //             found = true;
+        //             break;
+        //         }
+        //     }
+
+        //     if (!found) LOG_INFO("we got a problem dawg {} {} {} {}", tt_move, pos.fen(), tte.fen, tte.hash == pos.get_hash());
+        // }
+
+
         // If we are not in a pv node, and we got a useful score from the TT, return early
-        if (tt_hit 
-            && tt_depth >= depth
-            && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
-            ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
-            ||   (tt_bound == FLAG_EXACT))) 
+        if (tt_hit && 
+            tt_depth >= depth &&
+            ply != 0)
         {
-            return tt_score;
-        }
-        
-        if (pos.in_check<C>()) {
-            if (pos.checkmate<C>()) return -MATE_SCORE;
-            if (pos.stalemate<C>()) return 0;
-            static_eval = ss->static_eval = 0;
-        }
-        else if (tt_hit) {
-            static_eval = ss->static_eval = tte.eval; 
-        }
-        else {
-            static_eval = ss->static_eval = corrected_eval<C>(pos); 
+            m_info.tt_hits++;
+            if (tt_bound == FLAG_ALPHA && tt_score <= Aalpha) {
+                // return tt_score;
+            }
+            else if (tt_bound == FLAG_BETA && tt_score >= Bbeta) {
+                // return tt_score;
+            }
+            else if (tt_bound == FLAG_EXACT) {
+                // if (PVnode && tt_score > Aalpha) {
+                //     m_ctx.pv_table[ply][ply] = tt_move;
+                //     for (int i = ply + 1; i < m_ctx.pv_table_len[ply + 1]; ++i) {
+                //         m_ctx.pv_table[ply][i] = m_ctx.pv_table[ply + 1][i];
+                //     }
+                //     m_ctx.pv_table_len[ply] = m_ctx.pv_table_len[ply + 1];
+                // }
+
+                // return tt_score;
+            }
         }
 
-        Transposition node = Transposition{FLAG_ALPHA, hash, (int8_t)depth, static_eval, NO_SCORE, Move::none()};
+        if (pos.in_check<C>()) {
+            if (pos.checkmate<C>()) return -MATE_SCORE;
+            static_eval = ss->static_eval = 0;
+        }
+        else {
+            static_eval = ss->static_eval = tt_hit ? tt_eval : corrected_eval<C>(pos); 
+        }
+
+        // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a queen, is still under alpha then 
+        // prune this node by returning the static evaluation  
+        if (depth == 1 && !pos.in_check<C>() && static_eval + piece_value[QUEEN] < Aalpha) {
+            return static_eval + piece_value[QUEEN];   
+        }
+
+        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, -1, Move::none());
 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
         while ((m = picker.next()) != Move::none()) {
             move_count++;
 
-
             pos.play<C>(m);
- 
+
             // Late move reduction 
             // if (depth >= 3 
             //     && move_count > 3 
@@ -268,6 +302,15 @@ namespace Search {
             //     score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
             // }
 
+            // We need to toss this idea to the side, momentarily
+            // if (move_count < 3) {
+            //     score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
+            // }
+            // else {
+            //     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+            //     if (Aalpha < score && score < Bbeta) score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
+            // }
+
             score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
 
             pos.undo<C>(m);
@@ -275,11 +318,13 @@ namespace Search {
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
-                node.move = m;
+                node.move  = m;
+                node.eval  = pos.turn();
 
                 // We have found a move that is better than the current alpha
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
+                    node.flags = FLAG_EXACT;
                     
                     // Triangular transposition tables
                     // ply 0: m0 m1 m2 m3 m4
@@ -296,13 +341,11 @@ namespace Search {
                         m_ctx.pv_table_len[ply] = m_ctx.pv_table_len[ply + 1];
                     }
 
+
                     // Rank history moves
-                    if (m.is_quiet()) m_ctx.history_moves[m.from()][m.to()] += depth;
+                    if (m.is_quiet()) m_ctx.history_moves[m.from()][m.to()] += depth * depth;
 
-                    node.flags = FLAG_EXACT;
-
-                    // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take, which means
-                    // that this move will not be taken, though it is useful to keep track of these moves
+                    // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
                         if (m.is_quiet()) {
                             m_ctx.killer_moves[ply][1] = m_ctx.killer_moves[ply][0];
@@ -324,8 +367,13 @@ namespace Search {
                 return 0;
             }
         }
-        
+
         m_tt.push(hash, node);
+
+        // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
+        if (pos.in_check<C>() && best_score == -INFTY) {
+            return -MATE_SCORE;
+        }
 
         // Fail Low Node - No better move was found
         return best_score;
@@ -335,30 +383,33 @@ namespace Search {
 
     void Worker::iterative_deepening() 
     {
-        int alpha = -INFTY;
-        int beta = INFTY;
         int max_depth = m_cfg.max_depth;
         int current_depth = 1;
+        int last_score = 0;
         int score_avg = 0;
 
         Color to_play = m_root.turn();
-        Move best_move = NO_MOVE;
-        SearchStack ss[MAX_DEPTH + 1];
+        Move best_move = Move::none();
+        SearchStack ss[MAX_PLY + 1];
+
+        auto start_time = time_ms();
 
         for (; current_depth <= max_depth; ++current_depth) {
             int root_depth = current_depth;
             int depth      = root_depth;
-            int alpha      = -INFTY;
-            int beta       = INFTY;
+            int aw_margin  = 30;
+            int delta      = 50;
+            int alpha      = current_depth == 1 ? -INFTY : score_avg - aw_margin;
+            int beta       = current_depth == 1 ? INFTY  : score_avg + aw_margin;
             int score      = 0;
-            int delta      = 100;
+            m_info = { 0 };
 
             // Wipe search stack
-            for (int i = 0; i < MAX_DEPTH; ++i) {
-                (ss + i)->ply = i;
-                (ss + i)->tt_hit = false;
+            for (int i = 0; i < MAX_PLY; ++i) {
+                (ss + i)->ply         = i;
+                (ss + i)->tt_hit      = false;
                 (ss + i)->static_eval = 0;
-                (ss + i)->move_count = 0;
+                (ss + i)->move_count  = 0;
             }
 
             // if (depth >= 3) {
@@ -368,10 +419,9 @@ namespace Search {
 
             auto start_current_search = time_ms();
 
-            // if (current_depth > 0) { LOG_INFO("BEFORE (d = {}) {}", current_depth, m_root.fen()); }
-
             // Aspiration window search
             while (true) {
+                m_info.aw_iterations++;
                 if (to_play == WHITE)
                     score = search<WHITE, true>(m_root, ss, alpha, beta, depth);
                 else
@@ -399,7 +449,6 @@ namespace Search {
                 }
             }
 
-
             score_avg = score_avg == 0 ? score : (score_avg + score) / 2;
 
             auto end_current_search = time_ms();
@@ -410,18 +459,24 @@ namespace Search {
                 (m_cfg.nodeset && m_info.nodes > m_cfg.nodeslimit)) {
                 break;
             }
-            
-            uint32_t nps = (float)(m_info.nodes + m_info.qnodes) / ((end_current_search - start_current_search) / 1000.0f);   
 
-            std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_tt.hits() << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " pvlen " << m_ctx.pv_table_len[0] << " pv ";
+            // LOG_INFO("aw_iterations {}", m_info.aw_iterations);
+            
+            uint64_t elapsed = end_current_search - start_current_search;
+            uint32_t nps = elapsed > 0 ? (m_info.nodes * 1000) / elapsed : 0;   
+
+            std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_info.tt_hits << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " pvlen " << m_ctx.pv_table_len[0] << " pv ";
             for (int j = 0; j < m_ctx.pv_table_len[0]; j++) {
                 std::cout << m_ctx.pv_table[0][j] << " ";
             }
             std::cout << std::endl;
 
             best_move = m_ctx.pv_table[0][0];
-            m_info = {0};
         }
+
+        auto end_time = time_ms();
+
+        LOG_INFO("searchtime {}ms", (end_time - start_time));
 
         // Print the best move found
         std::cout << "bestmove ";
@@ -431,10 +486,10 @@ namespace Search {
 
     // Explicit template definitions
 
-    template int Worker::quiescence<WHITE, false>(Position& pos, int Aalpha, int Bbeta, int depth);
-    template int Worker::quiescence<WHITE, true>(Position& pos, int Aalpha, int Bbeta, int depth);
-    template int Worker::quiescence<BLACK, false>(Position& pos, int Aalpha, int Bbeta, int depth);
-    template int Worker::quiescence<BLACK, true>(Position& pos, int Aalpha, int Bbeta, int depth);
+    template int Worker::quiescence<WHITE, false>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
+    template int Worker::quiescence<BLACK, false>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
+    template int Worker::quiescence<WHITE, true>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
+    template int Worker::quiescence<BLACK, true>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
 
     template int Worker::search<WHITE, false>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
     template int Worker::search<WHITE, true>(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);

@@ -45,6 +45,8 @@ enum PieceType : int {
 	PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
 };
 
+inline PieceType& operator++(PieceType& pt) { pt = static_cast<PieceType>(static_cast<int>(pt) + 1); return pt; }
+
 //PIECE_STR[piece] is the algebraic chess representation of that piece
 const std::string PIECE_STR = "PNBRQK~>pnbrqk.";
 
@@ -209,7 +211,6 @@ public:
 	inline bool is_promotion() const { return flags() & MoveFlags::PROMOTIONS; }
 	inline bool is_quiet()     const { return flags() & MoveFlags::QUIET; }
 
-	inline Move& operator=(Move m) { move = m.move; return *this; }
 	inline bool operator==(Move a) const { return move == a.move; }
 	inline bool operator!=(Move a) const { return move != a.move; }
 

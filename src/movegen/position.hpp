@@ -52,6 +52,7 @@ public:
 
 
 namespace zobrist {
+	extern uint64_t side_to_move[NCOLORS];
 	extern uint64_t zobrist_table[NPIECES][NSQUARES];
 	extern void initialise_zobrist_keys();
 }
@@ -156,12 +157,10 @@ public:
 	template<Color C> inline Bitboard orthogonal_sliders() const;
 	template<Color C> inline Bitboard all_pieces() const;
 	template<Color C> inline Bitboard attackers(Square s, Bitboard occ) const;
-	template<Color C> inline Bitboard attacker(PieceType pc, Square s, Bitboard occ) const;
+	template<Color C, PieceType pt> inline Bitboard attacker(Square s, Bitboard occ) const;
 	template<PieceType type, Color C> inline Bitboard attacks_by() const;
 
-	template<Color C> inline bool in_check() const {
-		return attackers<~C>(bsf(bitboard_of(C, KING)), all_pieces<WHITE>() | all_pieces<BLACK>());
-	}
+	template<Color C> inline bool in_check() const { return attackers<~C>(bsf(bitboard_of(C, KING)), all_pieces<WHITE>() | all_pieces<BLACK>()); }
 
 	template<Color C> bool checkmate() const;
 	template<Color C> bool stalemate() const;
@@ -175,8 +174,10 @@ public:
 	template<Color Us>
 	Move *generate_legals(Move* list) const;
 
-	template <GenType type, Color Us>
+	template<GenType type, Color Us>
 	Move *generate(Move* list) const;
+
+	template<Color C> int see(Square to);
 };
 
 //Returns the bitboard of all bishops and queens of a given color
@@ -218,42 +219,52 @@ inline Bitboard Position::attackers(Square s, Bitboard occ) const {
 }
 
 // Returns a bitboard containing a specific piece of a given color attacking a particular square
-template<Color C>
-inline Bitboard Position::attacker(PieceType pt, Square s, Bitboard occ) const {	
-	if constexpr (C == WHITE) {
-		switch (pt) {
-		case PAWN: 
-			return (pawn_attacks<BLACK>(s) & piece_bb[WHITE_PAWN]);
-		case KNIGHT:
-			return (attacks<KNIGHT>(s, occ) & piece_bb[WHITE_KNIGHT]);
-		case BISHOP:
-			return (attacks<BISHOP>(s, occ) & piece_bb[WHITE_BISHOP]);
-		case ROOK:
-			return (attacks<ROOK>(s, occ) & piece_bb[WHITE_ROOK]);
-        case QUEEN:
-            return ((attacks<ROOK>(s, occ) | attacks<BISHOP>(s, occ)) & piece_bb[WHITE_QUEEN]);
-        case KING:
-            return (attacks<KING>(s, occ) & piece_bb[WHITE_KING]);
-		}
+template<Color C, PieceType pt>
+inline Bitboard Position::attacker(Square s, Bitboard occ) const {	
+	if constexpr (pt == PAWN) {
+		return pawn_attacks<~C>(s) & piece_bb[make_piece(C, PAWN)];
+	}
+	else if constexpr (pt == QUEEN) {
+		return (attacks<ROOK>(s, occ) | attacks<BISHOP>(s, occ)) & piece_bb[make_piece(C, QUEEN)];
 	}
 	else {
-		switch (pt) {
-		case PAWN:
-			return (pawn_attacks<WHITE>(s) & piece_bb[BLACK_PAWN]);
-		case KNIGHT:
-			return (attacks<KNIGHT>(s, occ) & piece_bb[BLACK_KNIGHT]);
-		case BISHOP:
-			return (attacks<BISHOP>(s, occ) & piece_bb[BLACK_BISHOP]);
-		case ROOK:
-			return (attacks<ROOK>(s, occ) & piece_bb[BLACK_ROOK]);
-        case QUEEN:
-            return ((attacks<ROOK>(s, occ) | attacks<BISHOP>(s, occ)) & piece_bb[BLACK_QUEEN]);
-        case KING:
-            return (attacks<KING>(s, occ) & piece_bb[BLACK_KING]);
-		}
-	};
+		return attacks<pt>(s, occ) & piece_bb[make_piece(C, pt)];
+	}
 
-	return 0;
+	// if constexpr (C == WHITE) {
+	// 	switch (pt) {
+	// 	case PAWN: 
+	// 		return (pawn_attacks<BLACK>(s) & piece_bb[WHITE_PAWN]);
+	// 	case KNIGHT:
+	// 		return (attacks<KNIGHT>(s, occ) & piece_bb[WHITE_KNIGHT]);
+	// 	case BISHOP:
+	// 		return (attacks<BISHOP>(s, occ) & piece_bb[WHITE_BISHOP]);
+	// 	case ROOK:
+	// 		return (attacks<ROOK>(s, occ) & piece_bb[WHITE_ROOK]);
+    //     case QUEEN:
+    //         return ;
+    //     case KING:
+    //         return (attacks<KING>(s, occ) & piece_bb[WHITE_KING]);
+	// 	}
+	// }
+	// else {
+	// 	switch (pt) {
+	// 	case PAWN:
+	// 		return (pawn_attacks<WHITE>(s) & piece_bb[BLACK_PAWN]);
+	// 	case KNIGHT:
+	// 		return (attacks<KNIGHT>(s, occ) & piece_bb[BLACK_KNIGHT]);
+	// 	case BISHOP:
+	// 		return (attacks<BISHOP>(s, occ) & piece_bb[BLACK_BISHOP]);
+	// 	case ROOK:
+	// 		return (attacks<ROOK>(s, occ) & piece_bb[BLACK_ROOK]);
+    //     case QUEEN:
+    //         return ((attacks<ROOK>(s, occ) | attacks<BISHOP>(s, occ)) & piece_bb[BLACK_QUEEN]);
+    //     case KING:
+    //         return (attacks<KING>(s, occ) & piece_bb[BLACK_KING]);
+	// 	}
+	// };
+
+	// return 0;
 }
 
 
@@ -445,7 +456,6 @@ bool Position::stalemate() const
 	const Bitboard our_orth_sliders = orthogonal_sliders<Us>();
 	const Bitboard their_orth_sliders = orthogonal_sliders<Them>();
 
-
 	//Squares that our king cannot move to
 	Bitboard danger = 0;
 
@@ -495,7 +505,6 @@ bool Position::stalemate() const
 
 	Bitboard quiet_mask = ~all;
 	Bitboard capture_mask = them_bb;
-
 
 	//For each ally piece, add all of its attacks to the b2 bitboard
 	b2 = pawn_attacks<Us>(bitboard_of(Us, PAWN) & not_pinned);
@@ -610,12 +619,18 @@ void Position::play(const Move m) {
 		break;
 	}
 
+	// hash the black_to_move
+	hash ^= zobrist::side_to_move[BLACK];
+
     history[game_ply].hash = get_hash();
 }
 
 //Undos a move in the current position, rolling it back to the previous position
 template<Color C>
 void Position::undo(const Move m) {
+	// unhash the black_to_move
+	hash ^= zobrist::side_to_move[BLACK];
+
 	MoveFlags type = m.flags();
 	switch (type) {
 	case QUIET:
@@ -666,6 +681,7 @@ void Position::undo(const Move m) {
 		put_piece(history[game_ply].captured, m.to());
 		break;
 	}
+
 
 	side_to_play = ~side_to_play;
 	--game_ply;
@@ -1695,4 +1711,52 @@ Move* Position::generate_legals_for(Square sq, Move* list)
 	return list;
 }
 
+/* Static Exchange Evaluation */
+template<Color C>
+int Position::see(Square to)
+{
+	int value = 0;
+	Bitboard occ = all_pieces<WHITE>() | all_pieces<BLACK>();
 
+	PieceType pt = PAWN;
+	Square from = NO_SQUARE;
+	Bitboard att = 0;
+	for (; pt < KING; ++pt) {
+		switch (pt) {
+			case PAWN: {
+				att = attacker<C, PAWN>(to, occ); 
+				if (rank_of(to) == relative_rank<C>(Rank::RANK8)) att |= (piece_bb[make_piece(C, PAWN)] & MASK_RANK[relative_rank<C>(Rank::RANK7)]);
+				break;
+			}
+			case KNIGHT: att = attacker<C, KNIGHT>(to, occ); break;
+			case BISHOP: att = attacker<C, BISHOP>(to, occ); break;
+			case ROOK: att = attacker<C, ROOK>(to, occ); break;
+			case QUEEN: att = attacker<C, QUEEN>(to, occ); break;
+			case KING: break;
+		}
+
+		if (att) {
+			from = pop_lsb(&att);
+			break;
+		}
+	}
+
+	if (from != NO_SQUARE) {
+		Piece captured = at(to);
+		Move m;
+
+		if (pt == PAWN && rank_of(to) == relative_rank<C>(RANK8)) {
+			m = Move(from, to, captured == NO_PIECE ? MoveFlags::PR_QUEEN : MoveFlags::PC_QUEEN);
+			value += (piece_value[QUEEN] - piece_value[PAWN]);
+		}
+		else {
+			m = Move(from, to, captured == NO_PIECE ? MoveFlags::QUIET : MoveFlags::CAPTURE);
+		}
+
+		play<C>(m);
+		value += piece_value[type_of(captured)] - see<~C>(to);
+		undo<C>(m);
+	}
+
+	return value;
+}

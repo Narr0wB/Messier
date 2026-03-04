@@ -5,6 +5,7 @@
 //Zobrist keys for each piece and each square
 //Used to incrementally update the hash key of a position
 uint64_t zobrist::zobrist_table[NPIECES][NSQUARES];
+uint64_t zobrist::side_to_move[NCOLORS];
 
 //Initializes the zobrist table with random 64-bit numbers
 void zobrist::initialise_zobrist_keys() {
@@ -12,6 +13,9 @@ void zobrist::initialise_zobrist_keys() {
 	for (int i = 0; i < NPIECES; i++)
 		for (int j = 0; j < NSQUARES; j++)
 			zobrist::zobrist_table[i][j] = rng.rand<uint64_t>();
+		
+	zobrist::side_to_move[0] = 0;
+	zobrist::side_to_move[1] = rng.rand<uint64_t>();
 }
 
 //Pretty-prints the position (including FEN and hash key)
@@ -61,8 +65,7 @@ std::string Position::fen() const {
 		<< (history[game_ply].entry & BLACK_OO_MASK ? "" : "k")
 		<< (history[game_ply].entry & BLACK_OOO_MASK ? "" : "q")
 		<< (history[game_ply].entry & ALL_CASTLING_MASK ? "" : "")
-		<< (" ")
-		<< (history[game_ply].epsq == NO_SQUARE ? "-" : SQSTR[history[game_ply].epsq]);
+		<< " " << (history[game_ply].epsq == NO_SQUARE ? "-" : SQSTR[history[game_ply].epsq]);
 
 	return fen.str();
 }
@@ -84,6 +87,7 @@ void Position::set(const std::string& fen, Position& p) {
 
 	ss >> token;
 	p.side_to_play = token == 'w' ? WHITE : BLACK;
+	p.hash ^= zobrist::side_to_move[p.side_to_play];
 
 	p.history[p.game_ply].entry = ALL_CASTLING_MASK;
 	while (ss >> token && !isspace(token)) {

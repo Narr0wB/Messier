@@ -155,7 +155,7 @@ Move Move::from_string(const std::string& string) {
 
 	MoveFlags promotion = MoveFlags::PR_BISHOP;
 		
-	switch (string[5]) {
+	switch (string[4]) {
 		case 'n': promotion = MoveFlags::PR_KNIGHT; break;
 		case 'b': promotion = MoveFlags::PR_BISHOP; break;
 		case 'r': promotion = MoveFlags::PR_ROOK;   break;

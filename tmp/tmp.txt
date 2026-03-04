@@ -1,0 +1,24 @@
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] ECHOING MOVES:        engine.py:1642
+                             position startpos moves b1c3 d7d5 e2e3 e7e5 d1h5 b8c6 f1b5 g8f6 h5e5 f8e7 b5c6 b7c6 g1f3                 
+                             e8g8 e5f4 e7d6 f4a4 c8d7 d2d4 c6c5 a4a5 c5d4 f3d4 f6e4 a5d5 e4c3 b2c3 d7e6 d4e6 f7e6 d5e6                
+                             g8h8'                                                                                                    
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] command: go wtime     engine.py:1642
+                             192789 btime 297640 winc 3000 binc 3000'                                                                 
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] time: 192789'         engine.py:1642
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] start: 490631157'     engine.py:1642
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] stop: 490639183'      engine.py:1642
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] movetime: 8026'       engine.py:1642
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] depth: 20'            engine.py:1642
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] timeset: true'        engine.py:1642
+                    WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:24] [I] nodeset: false'       engine.py:1642
+[03/02/26 17:07:32] WARNING  <UciProtocol (pid=21025)>: Unexpected engine output: '[17:07:32] [I] searchtime            engine.py:1642
+                             8025.009999999999ms'                                                                                     
+                    ERROR    Ending game due to bot attempting an illegal move.                                  engine_wrapper.py:192
+                    ERROR    illegal uci: 'd5e6' in r2q1r1k/p1p3pp/3bQ3/8/8/2P1P3/P1P2PPP/R1B1K2R w KQ - 1 17    engine_wrapper.py:193
+                    INFO     maia1 won!                                                                             lichess_bot.py:951
+                    INFO     engine-bot resigned.                                                                   lichess_bot.py:962
+                    INFO     *** https://lichess.org/rEGak9rw/white [player] engine-bot: Good game!                conversation.py:100
+                    INFO     *** https://lichess.org/rEGak9rw/white [spectator] engine-bot: Thanks for watching!   conversation.py:100
+                    INFO     --- https://lichess.org/rEGak9rw/white Game over                                       lichess_bot.py:924
+                    INFO     +++ Process Freed. Count: 0. IDs: None                                                 lichess_bot.py:319
+^[^C[03/02/26 17:09:47] INFO     Termination requested - stopping restart cycle               

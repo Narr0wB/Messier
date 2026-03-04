@@ -19,7 +19,7 @@ static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
     /* KING   */ {100, 200,   220,   230, 800,  900},
 };
 
-#define GOOD_CAPTURE_THRESHOLD 0
+#define GOOD_CAPTURE_THRESHOLD (100 - 1)
 #define GOOD_QUIET_THRESHOLD   30
 
 enum Stage : int {
@@ -53,15 +53,11 @@ struct ExtMove : public Move {
         inline bool operator<(const ExtMove& b) const { return score < b.score; }
 };
 
-/* Static Exchange Evaluation */
-template <Color Us>
-int SEE(Position pos, Square to);
-
 /* Borrowed most of the ideas of this MovePicker from Stockfish */
 template <Color C>
 class MovePicker {
     public:
-        MovePicker(const Position& pos, const Search::SearchContext& ctx, int ply, int depth, Move tt_move) :
+        MovePicker(Position& pos, const Search::SearchContext& ctx, int ply, int depth, Move tt_move) :
             m_pos(pos),
             m_ctx(ctx),
             m_ply(ply),
@@ -74,7 +70,7 @@ class MovePicker {
                 m_stage = (depth > 0) ? Stage::MAIN_TT : Stage::QUIESCENCE_TT;
         };
 
-        MovePicker(const Position&, const Search::SearchContext&, int, Move);
+        // MovePicker(const Position&, const Search::SearchContext&, int, Move);
 
         /* 
             More or less, in normal tree-search the state of the MovePicker behaves as follows:
@@ -105,7 +101,7 @@ class MovePicker {
                 case EVASION_TT:
                     ++m_stage;
                     // TODO: FIX THE TT MOVE
-                    // if (m_ttmove != Move::none()) return m_ttmove;
+                    if (m_ttmove != Move::none()) { return m_ttmove; }
                     goto top;
                 
                 case QUIESCENCE_INIT:
@@ -122,7 +118,7 @@ class MovePicker {
 
                 case GOOD_CAPTURES: {
                     Move m = select([&]() {
-                        if (m_cur->score > GOOD_CAPTURE_THRESHOLD)
+                        if (m_pos.see<C>(m_cur->to()) > GOOD_CAPTURE_THRESHOLD)
                             return true;
                         
                         // Since re-searching the array of capures once again is expensive, we move the bad captures to the front
@@ -184,8 +180,8 @@ class MovePicker {
                     // Intentional fallthrough to the next stage
                 }
 
-                case QUIESCENCE:
-                case EVASION: {
+                case EVASION:
+                case QUIESCENCE: {
                     Move m = select([]() { return true; });
                     return m;
                 }
@@ -196,7 +192,7 @@ class MovePicker {
         }
 
     private:
-        const Position&              m_pos;
+        Position&                    m_pos;
         const Search::SearchContext& m_ctx;
         int                          m_ply;
         int                          m_depth;

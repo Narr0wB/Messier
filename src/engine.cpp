@@ -101,7 +101,7 @@ namespace Engine {
 			else if (tokens[1] == "fen") { Position::set(command.substr(command.find("fen") + 4, std::string::npos), m_board); }
 
 			if (command.find("moves") != std::string::npos) {
-                LOG_INFO("ECHOING MOVES: {}", command);
+                // LOG_INFO("ECHOING MOVES: {}", command);
 				int string_start = command.find("moves") + 6;
 
 				if (string_start > command.length()) return;
@@ -134,37 +134,8 @@ namespace Engine {
 						if (match != move_list.end()) m_board.play<BLACK>(*match);
 					}
 				}
-                
-                // for (size_t i = 0; i < moves.size(); ++i) {
-                //     uint8_t promotion = 0;
 
-                //     if (moves[i].length() == 5) {
-                //         auto p = moves[i][4];
-                //         switch (p) {
-                //             case 'n': promotion = MoveFlags::PR_KNIGHT; break;
-                //             case 'b': promotion = MoveFlags::PR_BISHOP; break;
-                //             case 'r': promotion = MoveFlags::PR_ROOK;   break;
-                //             case 'q': promotion = MoveFlags::PR_QUEEN;  break;
-                //         }
-                //     }
-
-                //     if (m_board.turn() == WHITE) {
-                //         MoveList<WHITE> move_list(m_board);
-                //         Move move = move_list.find(Move(moves[i]).to_from(), promotion);
-
-                //         if (move != NO_MOVE) {
-                //             m_board.play<WHITE>(move);
-                //         }
-                //     }
-                //     else {
-                //         MoveList<BLACK> move_list(m_board);
-                //         Move move = move_list.find(Move(moves[i]).to_from(), promotion);
-                        
-                //         if (move != NO_MOVE) {
-                //             m_board.play<BLACK>(move);
-                //         }
-                //     }
-                // }
+				// LOG_INFO("fen {}", m_board.fen());
 			}
 		}
 
@@ -287,7 +258,7 @@ namespace Engine {
 
 			cfg.search_start_time = time_ms();
 			cfg.max_depth = depth;
-			cfg.quiescence_depth = 3;
+			cfg.quiescence_depth = 15;
 
 			// Optimize time available for this search
 			optimize(cfg, time, inc);

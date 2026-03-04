@@ -15,6 +15,7 @@
 #include <atomic>
 
 #define MAX_DEPTH 20
+#define MAX_PLY   30 
 #define MAX_TABLE MAX_DEPTH + 1
 
 #define MATE_SCORE UINT16_MAX 
@@ -37,20 +38,24 @@ namespace Search {
         uint64_t nodes;
         uint64_t qnodes;
         uint64_t reduced_nodes;
+        uint64_t aw_iterations;
+        uint64_t tt_hits;
     };
 
     struct SearchStack {
-        int ply;
-        int static_eval;
-        int move_count;
+        int  ply;
+        int  static_eval;
+        int  move_count;
         bool tt_hit;
+        Move pv[MAX_TABLE];
     };
 
     struct SearchContext {
+        Move pv[MAX_TABLE];
         Move pv_table[MAX_TABLE][MAX_TABLE];
-        int pv_table_len[MAX_TABLE];
+        int  pv_table_len[MAX_TABLE];
         Move killer_moves[MAX_TABLE][2];
-        int history_moves[64][64];
+        int  history_moves[64][64];
     };
 
     enum class WorkerState {
@@ -84,7 +89,8 @@ namespace Search {
             void iterative_deepening();
 
             template <Color C, bool PVnode>
-            int quiescence(Position& pos, int Aalpha, int Bbeta, int depth);
+            int quiescence(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
+
             template <Color C, bool PVnode>
             int search(Position& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth);
 
@@ -108,36 +114,6 @@ namespace Search {
 
     inline int mate_in(int ply) { return MATE_SCORE - ply; };
     inline int mated_in(int ply) { return -MATE_SCORE + ply; };
-
-    // Order moves using context
-    // template <Color Us>
-    // struct move_sorting_criterion {
-    //     const SearchContext& ctx;
-    //     const Position& pos;
-    //     int ply;
-    //     Move tt_move;
-
-    //     move_sorting_criterion(const SearchContext& c, const Position& p, int pl, Move m) : 
-    //         ctx(c), 
-    //         pos(p),
-    //         ply(pl), 
-    //         tt_move(m)
-    //     {} 
-
-    //     bool operator() (const Move& a, const Move& b) 
-    //     {
-    //         // Since the std::stable_sort function actually sorts elements in a list in ascending order by checking if a < b is true,  
-    //         // we have to flip the comparison in order to have a list ordered in descending order 
-    //         return score_move(a, ctx, pos, ply, tt_move) > score_move(b, ctx, pos, ply, tt_move);
-    //     }
-    // };
-
-    // template <Color Us>
-    // void order_move_list(MoveList<Us>& m, const SearchContext& ctx, const Position& pos, int ply, Move tt_move) 
-    // {
-    //     // This function sorts the movelist in descending order
-    //     std::stable_sort(m.begin(), m.end(), move_sorting_criterion<Us>(ctx, pos, ply, tt_move));
-    // }
 } // namespace Search
 
 #endif // SEARCH_H
