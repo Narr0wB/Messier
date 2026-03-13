@@ -19,8 +19,8 @@ static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
     /* KING   */ {100, 200,   220,   230, 800,  900},
 };
 
-#define GOOD_CAPTURE_THRESHOLD (100 - 1)
-#define GOOD_QUIET_THRESHOLD   30
+#define GOOD_CAPTURE_THRESHOLD 0 
+#define GOOD_QUIET_THRESHOLD   200 
 
 enum Stage : int {
     MAIN_TT,
@@ -246,7 +246,11 @@ class MovePicker {
                 }
                 else if constexpr (type == GenType::QUIETS) {
                     // History heuristic
-                    m.score += m_ctx.history_moves[from][to];
+                    m.score = m_ctx.history_moves[from][to];
+
+                    // Killer heuristic
+                    m.score += m_ctx.killer_moves[m_ply][0] == m ? 900 : 0;
+                    m.score += m_ctx.killer_moves[m_ply][1] == m ? 800 : 0;
                     
                     // Assign a bonus for escaping a threat by a lesser piece
                     int v = (threat_by_lesser[pt] & (1 << to)) ? -30 : 40 * bool((threat_by_lesser[pt] & (1 << from)));

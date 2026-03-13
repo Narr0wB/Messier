@@ -46,6 +46,7 @@ namespace Search {
         int  ply;
         int  static_eval;
         int  move_count;
+        bool in_check;
         bool tt_hit;
         Move pv[MAX_TABLE];
     };

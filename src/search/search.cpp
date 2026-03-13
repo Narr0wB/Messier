@@ -104,10 +104,10 @@ namespace Search {
         int best_score = -INFTY;
         int score = 0;
         int move_count = 0;
-        bool in_check = pos.in_check<C>();
+        ss->in_check = pos.in_check<C>();
         Move m = Move::none();
 
-        if (!pos.in_check<C>()) {
+        if (!ss->in_check) {
             // Stand pat, check if current position is already better than Beta (or atleast better than alfa)
             int static_eval = tt_hit ? tt_eval : corrected_eval<C>(pos); 
             best_score = static_eval;
@@ -120,7 +120,7 @@ namespace Search {
         MovePicker<C> picker(pos, m_ctx, ss->ply, -1, tt_move);
         while ((m = picker.next()) != Move::none()) {
             move_count++;
-            if (!in_check) {
+            if (!ss->in_check) {
                 if (pos.see<C>(m.to()) < 0) continue;
 
                 if (!m.is_promotion() && move_count > 4) continue;
@@ -145,9 +145,10 @@ namespace Search {
             }
         }
 
-        // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
-        if (in_check && best_score == -INFTY) {
-            return -MATE_SCORE;
+        if (best_score == -INFTY) {
+            // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
+            if (ss->in_check) { return -MATE_SCORE; }
+            else { return 0; }
         }
 
         return best_score;
@@ -166,6 +167,7 @@ namespace Search {
         int score = 0;
         int static_eval = 0;
         int best_score = -INFTY;
+        ss->in_check = pos.in_check<C>();
         uint64_t hash = pos.get_hash();
         Move m = Move::none();
         m_ctx.pv_table_len[ply] = ply;
@@ -241,20 +243,11 @@ namespace Search {
                 return tt_score;
             }
             else if (tt_bound == FLAG_EXACT) {
-                // if (PVnode && tt_score > Aalpha) {
-                //     m_ctx.pv_table[ply][ply] = tt_move;
-                //     for (int i = ply + 1; i < m_ctx.pv_table_len[ply + 1]; ++i) {
-                //         m_ctx.pv_table[ply][i] = m_ctx.pv_table[ply + 1][i];
-                //     }
-                //     m_ctx.pv_table_len[ply] = m_ctx.pv_table_len[ply + 1];
-                // }
-
                 return tt_score;
             }
         }
 
-        if (pos.in_check<C>()) {
-            if (pos.checkmate<C>()) return -MATE_SCORE;
+        if (ss->in_check) {
             static_eval = ss->static_eval = 0;
         }
         else {
@@ -263,11 +256,11 @@ namespace Search {
 
         // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a queen, is still under alpha then 
         // prune this node by returning the static evaluation  
-        if (depth == 1 && !pos.in_check<C>() && static_eval + piece_value[QUEEN] < Aalpha) {
+        if (depth == 1 && !ss->in_check && static_eval + piece_value[QUEEN] < Aalpha) {
             return static_eval + piece_value[QUEEN];   
         }
 
-        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, -1, Move::none());
+        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, static_eval, Move::none());
 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
         while ((m = picker.next()) != Move::none()) {
@@ -276,22 +269,22 @@ namespace Search {
             pos.play<C>(m);
 
             // Late move reduction 
-            // if (depth >= 3 
-            //     && move_count > 3 
-            //     && m.is_quiet() 
-            //     && (!pos.in_check<C>() && !pos.in_check<~C>())
-            //     && !PVnode)
-            // {
-            //     // If the conditions are met then we do a search at reduced depth with a reduced window (two fold deeper)
-            //     int reduced = std::max(1, depth - (move_count - 2) - 1);
-            //     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced);
+            if (depth >= 3 
+                && move_count > 2
+                && m.is_quiet() 
+                && (!ss->in_check && !pos.in_check<~C>()))
+            {
+                // int reduced = std::max(1, depth - int((std::log(depth) * std::log(move_count)) / 2.0f));
+                int reduction = 2;
+                score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1 - reduction);
 
-            //     if (score > Aalpha) {
-            //         score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
-            //     }
-
-            //     m_info.qnodes++;
-            // }
+                if (score > Aalpha) {
+                    score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
+                }
+            }
+            else {
+                score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
+            }
 
             // If we cannot reduce or we are not in a PV node, then search at full depth but with a reduced window
             // else if (move_count > 1 || !PVnode) {
@@ -311,15 +304,12 @@ namespace Search {
             //     if (Aalpha < score && score < Bbeta) score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
             // }
 
-            score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
-
             pos.undo<C>(m);
 
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
                 node.move  = m;
-                node.eval  = pos.turn();
 
                 // We have found a move that is better than the current alpha
                 if (best_score > Aalpha) {
@@ -370,10 +360,13 @@ namespace Search {
 
         m_tt.push(hash, node);
 
-        // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
-        if (pos.in_check<C>() && best_score == -INFTY) {
-            return -MATE_SCORE;
+        if (best_score == -INFTY) {
+            // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate.
+            // If there is no check, then it is a stalemate
+            if (ss->in_check) { return -MATE_SCORE; }
+            else { return 0; }
         }
+
 
         // Fail Low Node - No better move was found
         return best_score;
@@ -397,7 +390,7 @@ namespace Search {
         for (; current_depth <= max_depth; ++current_depth) {
             int root_depth = current_depth;
             int depth      = root_depth;
-            int aw_margin  = 30;
+            int aw_margin  = 20;
             int delta      = 50;
             int alpha      = current_depth == 1 ? -INFTY : score_avg - aw_margin;
             int beta       = current_depth == 1 ? INFTY  : score_avg + aw_margin;
@@ -407,9 +400,10 @@ namespace Search {
             // Wipe search stack
             for (int i = 0; i < MAX_PLY; ++i) {
                 (ss + i)->ply         = i;
-                (ss + i)->tt_hit      = false;
                 (ss + i)->static_eval = 0;
                 (ss + i)->move_count  = 0;
+                (ss + i)->tt_hit      = false;
+                (ss + i)->in_check    = false;
             }
 
             // if (depth >= 3) {
@@ -437,12 +431,10 @@ namespace Search {
             
                 if (score <= alpha) {
                     beta = (alpha + beta) / 2;
-                    alpha = std::max<int64_t>(-INFTY, alpha - delta * 5);
-                    // depth = root_depth;
+                    alpha = std::max<int64_t>(-INFTY, alpha - (delta * 3));
                 }
                 else if (score >= beta) {
-                    beta = std::min<int64_t>(INFTY, beta + delta * 5);
-                    // depth = std::max(depth - 1, root_depth - 5); 
+                    beta = std::min<int64_t>(INFTY, beta + (delta * 3));
                 }
                 else {
                     break;
@@ -465,7 +457,7 @@ namespace Search {
             uint64_t elapsed = end_current_search - start_current_search;
             uint32_t nps = elapsed > 0 ? (m_info.nodes * 1000) / elapsed : 0;   
 
-            std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_info.tt_hits << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " pvlen " << m_ctx.pv_table_len[0] << " pv ";
+            std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_info.tt_hits << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " AWit " << m_info.aw_iterations << " pvlen " << m_ctx.pv_table_len[0] << " pv ";
             for (int j = 0; j < m_ctx.pv_table_len[0]; j++) {
                 std::cout << m_ctx.pv_table[0][j] << " ";
             }
