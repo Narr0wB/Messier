@@ -9,6 +9,8 @@
 #include "log.hpp"
 
 namespace Search {
+    int LMReductions[MAX_DEPTH][64];
+
     void Worker::idle_loop() {
         while (true) {
             std::unique_lock<std::mutex> lock(m_mutex);
@@ -19,8 +21,13 @@ namespace Search {
 
             m_stop = false;
             switch (m_state) {
-                case WorkerState::SEARCHING: iterative_deepening(); break;
-                case WorkerState::DEAD: return; break;
+                case WorkerState::SEARCHING: {
+                    iterative_deepening(); 
+                    break;
+                }
+                case WorkerState::DEAD: {
+                    return;
+                }
             }
 
             lock.lock();
@@ -66,6 +73,14 @@ namespace Search {
     WorkerState Worker::get_state() {
         return m_state;
     }
+
+    void compute_lmr_reductions() {
+        for (int depth = 0; depth < MAX_DEPTH; ++depth) {
+            for (int move_count = 0; move_count < 64; ++move_count) {
+                LMReductions[depth][move_count] = int(std::log(depth) * std::log(move_count));
+            }
+        }
+    }
    
 
 
@@ -107,23 +122,36 @@ namespace Search {
         ss->in_check = pos.in_check<C>();
         Move m = Move::none();
 
+        Transposition node(FLAG_ALPHA, pos.get_hash(), -1, NO_SCORE, NO_SCORE, Move::none());
+
         if (!ss->in_check) {
             // Stand pat, check if current position is already better than Beta (or atleast better than alfa)
-            int static_eval = tt_hit ? tt_eval : corrected_eval<C>(pos); 
-            best_score = static_eval;
-            if (best_score >= Bbeta) return best_score;
-            if (best_score > Aalpha) Aalpha = best_score;
+            ss->static_eval = node.eval = tt_hit ? tt_eval : corrected_eval<C>(pos); 
+            best_score = ss->static_eval;
+            node.score = best_score;
+
+            if (best_score >= Bbeta) {
+                node.flags = FLAG_BETA;
+                m_tt.push(pos.get_hash(), node);
+                return best_score;
+            }
+            if (best_score > Aalpha) {
+                node.flags = FLAG_EXACT;
+                Aalpha = best_score;
+            }
+        }
+        else {
+            ss->static_eval = node.eval = NO_SCORE;
         }
         
-        if (ss->ply >= MAX_PLY) return best_score != -INFTY ? best_score : corrected_eval<C>(pos);
+        if (ss->ply >= MAX_PLY - 1) return best_score != -INFTY ? best_score : corrected_eval<C>(pos);
 
         MovePicker<C> picker(pos, m_ctx, ss->ply, -1, tt_move);
         while ((m = picker.next()) != Move::none()) {
             move_count++;
-            if (!ss->in_check) {
-                if (pos.see<C>(m.to()) < 0) continue;
 
-                if (!m.is_promotion() && move_count > 4) continue;
+            if (!ss->in_check) {
+                if (pos.see<C>(m) < 0) continue;
             }  
 
             pos.play<C>(m);
@@ -134,12 +162,16 @@ namespace Search {
 
             if (score > best_score) {
                 best_score = score;
+                node.score = score;
+                node.move  = m;
 
                 if (score > Aalpha) {
                     Aalpha = best_score;
+                    node.flags = FLAG_EXACT;
 
                     if (score >= Bbeta) {
-                        return score;
+                        node.flags = FLAG_BETA;
+                        break;
                     }
                 }
             }
@@ -147,10 +179,12 @@ namespace Search {
 
         if (best_score == -INFTY) {
             // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
-            if (ss->in_check) { return -MATE_SCORE; }
-            else { return 0; }
+            best_score = ss->in_check ? -MATE_SCORE + ss->ply : 0;
+            node.score = best_score;
+            node.flags = FLAG_EXACT;
         }
 
+        m_tt.push(pos.get_hash(), node);
         return best_score;
     }
 
@@ -216,21 +250,6 @@ namespace Search {
         uint8_t tt_bound = tte.flags;
         int8_t tt_depth = tte.depth;
 
-        // if (tt_hit) {
-        //     MoveList<LEGAL, C> l(pos);
-        //     bool found = false;
-        //     for (auto mv : l) {
-        //         if (mv == tt_move) {
-        //             found = true;
-        //             break;
-        //         }
-        //     }
-
-        //     if (!found) LOG_INFO("we got a problem dawg {} {} {} {}", tt_move, pos.fen(), tte.fen, tte.hash == pos.get_hash());
-        // }
-
-
-        // If we are not in a pv node, and we got a useful score from the TT, return early
         if (tt_hit && 
             tt_depth >= depth &&
             ply != 0)
@@ -268,41 +287,31 @@ namespace Search {
 
             pos.play<C>(m);
 
-            // Late move reduction 
-            if (depth >= 3 
-                && move_count > 2
-                && m.is_quiet() 
-                && (!ss->in_check && !pos.in_check<~C>()))
-            {
-                // int reduced = std::max(1, depth - int((std::log(depth) * std::log(move_count)) / 2.0f));
-                int reduction = 2;
-                score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1 - reduction);
-
-                if (score > Aalpha) {
-                    score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
-                }
-            }
-            else {
+            // PVS
+            if (move_count == 1) {
                 score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
             }
+            else {
+                if (depth >= 3 
+                    && move_count > 3
+                    && m.is_quiet() 
+                    && (!ss->in_check && !pos.in_check<~C>()))
+                {
+                    int reduced = std::max(0, depth - 1 - LMReductions[std::min(depth, MAX_DEPTH - 1)][std::min(move_count, 63)]);
+                    score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced);
 
-            // If we cannot reduce or we are not in a PV node, then search at full depth but with a reduced window
-            // else if (move_count > 1 || !PVnode) {
-            //     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
-            // }
+                    if (score > Aalpha) {
+                        score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+                    }
+                }
+                else {
+                    score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+                }
 
-            // if (PVnode && (move_count == 1 || score > Aalpha && (ply == 0 || score < Bbeta))) {
-            //     score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
-            // }
-
-            // We need to toss this idea to the side, momentarily
-            // if (move_count < 3) {
-            //     score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
-            // }
-            // else {
-            //     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
-            //     if (Aalpha < score && score < Bbeta) score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
-            // }
+                if (Aalpha < score && score < Bbeta) {
+                    score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
+                }
+            }
 
             pos.undo<C>(m);
 
@@ -363,12 +372,10 @@ namespace Search {
         if (best_score == -INFTY) {
             // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate.
             // If there is no check, then it is a stalemate
-            if (ss->in_check) { return -MATE_SCORE; }
+            if (ss->in_check) { return -MATE_SCORE + ss->ply; }
             else { return 0; }
         }
 
-
-        // Fail Low Node - No better move was found
         return best_score;
     }
 
@@ -383,7 +390,6 @@ namespace Search {
 
         Color to_play = m_root.turn();
         Move best_move = Move::none();
-        SearchStack ss[MAX_PLY + 1];
 
         auto start_time = time_ms();
 
@@ -399,17 +405,12 @@ namespace Search {
 
             // Wipe search stack
             for (int i = 0; i < MAX_PLY; ++i) {
-                (ss + i)->ply         = i;
-                (ss + i)->static_eval = 0;
-                (ss + i)->move_count  = 0;
-                (ss + i)->tt_hit      = false;
-                (ss + i)->in_check    = false;
+                (m_ss + i)->ply         = i;
+                (m_ss + i)->static_eval = 0;
+                (m_ss + i)->move_count  = 0;
+                (m_ss + i)->tt_hit      = false;
+                (m_ss + i)->in_check    = false;
             }
-
-            // if (depth >= 3) {
-            //     alpha = std::max(-INF, score_avg - delta);
-            //     beta = std::min(INF, score_avg + delta);
-            // }
 
             auto start_current_search = time_ms();
 
@@ -417,9 +418,9 @@ namespace Search {
             while (true) {
                 m_info.aw_iterations++;
                 if (to_play == WHITE)
-                    score = search<WHITE, true>(m_root, ss, alpha, beta, depth);
+                    score = search<WHITE, true>(m_root, m_ss, alpha, beta, depth);
                 else
-                    score = search<BLACK, true>(m_root, ss, alpha, beta, depth);
+                    score = search<BLACK, true>(m_root, m_ss, alpha, beta, depth);
 
 
                 if ((m_stop) ||

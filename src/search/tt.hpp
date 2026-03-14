@@ -12,7 +12,9 @@
 #define FLAG_ALPHA 2
 #define FLAG_BETA 3
 
-#define NO_SCORE 0 
+#define MATE_SCORE UINT16_MAX 
+#define INFTY (MATE_SCORE * 2) 
+#define NO_SCORE (INFTY + 1)
 #define NO_EVAL 0 
 
 struct Transposition {
@@ -44,13 +46,16 @@ class TTable {
             m_capacity(capacity),
             m_stored(0)
         {
-            if (capacity < MAX_CAPACITY)
+            if (capacity < MAX_CAPACITY) {
                 m_map.resize(capacity);
-            else
+            }
+            else {
                 m_map.resize(MAX_CAPACITY);
+                m_capacity = MAX_CAPACITY;
+            }
         }
 
-        TTable() : m_capacity(DEFAULT_CAPACITY), m_stored(0) {};
+        TTable() : m_capacity(DEFAULT_CAPACITY), m_stored(0) { m_map.resize(m_capacity); };
 
         inline size_t stored() { return m_stored; }
         inline size_t capacity() { return m_capacity; }

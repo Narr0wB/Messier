@@ -177,7 +177,8 @@ public:
 	template<GenType type, Color Us>
 	Move *generate(Move* list) const;
 
-	template<Color C> int see(Square to);
+	template<Color C> int see_to(Square to);
+	template<Color C> int see(Move m);
 };
 
 //Returns the bitboard of all bishops and queens of a given color
@@ -1713,26 +1714,27 @@ Move* Position::generate_legals_for(Square sq, Move* list)
 
 /* Static Exchange Evaluation */
 template<Color C>
-int Position::see(Square to)
+int Position::see_to(Square to)
 {
+	// TODO: Fix this mess
 	int value = 0;
 	Bitboard occ = all_pieces<WHITE>() | all_pieces<BLACK>();
 
 	PieceType pt = PAWN;
 	Square from = NO_SQUARE;
 	Bitboard att = 0;
-	for (; pt < KING; ++pt) {
+	for (; pt <= KING; ++pt) {
 		switch (pt) {
 			case PAWN: {
 				att = attacker<C, PAWN>(to, occ); 
-				if (rank_of(to) == relative_rank<C>(Rank::RANK8)) att |= (piece_bb[make_piece(C, PAWN)] & MASK_RANK[relative_rank<C>(Rank::RANK7)]);
+				// if (rank_of(to) == relative_rank<C>(Rank::RANK8)) att |= (piece_bb[make_piece(C, PAWN)] & MASK_RANK[relative_rank<C>(Rank::RANK7)]);
 				break;
 			}
 			case KNIGHT: att = attacker<C, KNIGHT>(to, occ); break;
 			case BISHOP: att = attacker<C, BISHOP>(to, occ); break;
 			case ROOK: att = attacker<C, ROOK>(to, occ); break;
 			case QUEEN: att = attacker<C, QUEEN>(to, occ); break;
-			case KING: break;
+			case KING: att = attacker<C, KING>(to, occ); break;
 		}
 
 		if (att) {
@@ -1743,7 +1745,10 @@ int Position::see(Square to)
 
 	if (from != NO_SQUARE) {
 		Piece captured = at(to);
+		if (type_of(captured) == KING) return piece_value[KING];
 		Move m;
+
+		LOG_INFO("{} {} {}", from, pt, fen());
 
 		if (pt == PAWN && rank_of(to) == relative_rank<C>(RANK8)) {
 			m = Move(from, to, captured == NO_PIECE ? MoveFlags::PR_QUEEN : MoveFlags::PC_QUEEN);
@@ -1754,9 +1759,39 @@ int Position::see(Square to)
 		}
 
 		play<C>(m);
-		value += piece_value[type_of(captured)] - see<~C>(to);
+		value += piece_value[type_of(captured)] - std::max(0, see_to<~C>(to));
 		undo<C>(m);
 	}
+
+	return value;
+}
+
+template <Color C>
+int Position::see(Move m) {
+	Square to = m.to();
+	Piece captured = at(to);
+	int value = 0; 
+
+	if (m.flags() == MoveFlags::EN_PASSANT) {
+		value = piece_value[PAWN];
+	}
+	else if (captured != NO_PIECE) {
+		value = piece_value[type_of(captured)];
+	}
+	else if (!m.is_promotion()) {
+		return 0;
+	}
+
+	if (m.is_promotion()) {
+		value += (piece_value[QUEEN] - piece_value[PAWN]);
+	}
+
+
+	play<C>(m);
+
+	value -= std::max(0, see_to<~C>(to));
+
+	undo<C>(m);
 
 	return value;
 }

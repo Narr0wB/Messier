@@ -48,7 +48,6 @@ namespace Search {
         int  move_count;
         bool in_check;
         bool tt_hit;
-        Move pv[MAX_TABLE];
     };
 
     struct SearchContext {
@@ -75,14 +74,10 @@ namespace Search {
             // Position is reset after call to Worker::run()
             Position m_root;
 
-            // Structure is reset after call to Worker::run()
             SearchConfig m_cfg;
-
-            // Structure is reset after call to Worker::clear()
             SearchContext m_ctx;
-
-            // Structure is reset after each iteration in Worker::iterative_deepening()
             SearchInfo m_info;
+            SearchStack m_ss[MAX_PLY + 1];
 
             void idle_loop();
             void kill();
@@ -112,6 +107,8 @@ namespace Search {
             void clear();
             void stop();
     };
+
+    void compute_lmr_reductions();
 
     inline int mate_in(int ply) { return MATE_SCORE - ply; };
     inline int mated_in(int ply) { return -MATE_SCORE + ply; };

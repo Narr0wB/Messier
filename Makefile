@@ -11,7 +11,7 @@ setup:
 export CC = g++
 export LD = g++ 
 export DEBUG = -g
-export CCFLAGS = -g -fno-omit-frame-pointer -O3 -std=c++20
+export CCFLAGS = -g -O3 -std=c++20
 
 TARGET = $(OUTDIR)/messier
 

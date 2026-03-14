@@ -11,6 +11,8 @@ namespace Engine {
 		m_table(DEFAULT_CAPACITY),
         m_worker(m_table)
 	{ 
+		Search::compute_lmr_reductions();
+
 		// Parse command line arguments
 		for (int i = 1; i < argc; ++i) {
 			std::string arg = argv[i];
@@ -258,7 +260,7 @@ namespace Engine {
 
 			cfg.search_start_time = time_ms();
 			cfg.max_depth = depth;
-			cfg.quiescence_depth = 15;
+			cfg.quiescence_depth = 5;
 
 			// Optimize time available for this search
 			optimize(cfg, time, inc);
