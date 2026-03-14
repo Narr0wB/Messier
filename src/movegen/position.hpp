@@ -158,6 +158,7 @@ public:
 	template<Color C> inline Bitboard all_pieces() const;
 	template<Color C> inline Bitboard attackers(Square s, Bitboard occ) const;
 	template<Color C, PieceType pt> inline Bitboard attacker(Square s, Bitboard occ) const;
+	template<Color C, PieceType pt> inline Bitboard attacker_bb(Square s, Bitboard occ, Bitboard *bb) const;
 	template<PieceType type, Color C> inline Bitboard attacks_by() const;
 
 	template<Color C> inline bool in_check() const { return attackers<~C>(bsf(bitboard_of(C, KING)), all_pieces<WHITE>() | all_pieces<BLACK>()); }
@@ -178,7 +179,7 @@ public:
 	Move *generate(Move* list) const;
 
 	template<Color C> int see_to(Square to);
-	template<Color C> int see(Move m);
+	template<Color C> bool see(Move m, int threshold);
 };
 
 //Returns the bitboard of all bishops and queens of a given color
@@ -231,43 +232,20 @@ inline Bitboard Position::attacker(Square s, Bitboard occ) const {
 	else {
 		return attacks<pt>(s, occ) & piece_bb[make_piece(C, pt)];
 	}
-
-	// if constexpr (C == WHITE) {
-	// 	switch (pt) {
-	// 	case PAWN: 
-	// 		return (pawn_attacks<BLACK>(s) & piece_bb[WHITE_PAWN]);
-	// 	case KNIGHT:
-	// 		return (attacks<KNIGHT>(s, occ) & piece_bb[WHITE_KNIGHT]);
-	// 	case BISHOP:
-	// 		return (attacks<BISHOP>(s, occ) & piece_bb[WHITE_BISHOP]);
-	// 	case ROOK:
-	// 		return (attacks<ROOK>(s, occ) & piece_bb[WHITE_ROOK]);
-    //     case QUEEN:
-    //         return ;
-    //     case KING:
-    //         return (attacks<KING>(s, occ) & piece_bb[WHITE_KING]);
-	// 	}
-	// }
-	// else {
-	// 	switch (pt) {
-	// 	case PAWN:
-	// 		return (pawn_attacks<WHITE>(s) & piece_bb[BLACK_PAWN]);
-	// 	case KNIGHT:
-	// 		return (attacks<KNIGHT>(s, occ) & piece_bb[BLACK_KNIGHT]);
-	// 	case BISHOP:
-	// 		return (attacks<BISHOP>(s, occ) & piece_bb[BLACK_BISHOP]);
-	// 	case ROOK:
-	// 		return (attacks<ROOK>(s, occ) & piece_bb[BLACK_ROOK]);
-    //     case QUEEN:
-    //         return ((attacks<ROOK>(s, occ) | attacks<BISHOP>(s, occ)) & piece_bb[BLACK_QUEEN]);
-    //     case KING:
-    //         return (attacks<KING>(s, occ) & piece_bb[BLACK_KING]);
-	// 	}
-	// };
-
-	// return 0;
 }
 
+template<Color C, PieceType pt>
+inline Bitboard Position::attacker_bb(Square s, Bitboard occ, Bitboard *bb) const {	
+	if constexpr (pt == PAWN) {
+		return pawn_attacks<~C>(s) & bb[make_piece(C, pt)];
+	}
+	else if constexpr (pt == QUEEN) {
+		return (attacks<ROOK>(s, occ) | attacks<BISHOP>(s, occ)) & bb[make_piece(C, QUEEN)];
+	}
+	else {
+		return attacks<pt>(s, occ) & bb[make_piece(C, pt)];
+	}
+}
 
 template<PieceType type, Color C> inline Bitboard Position::attacks_by() const {
 	Bitboard a = 0;
@@ -1712,86 +1690,92 @@ Move* Position::generate_legals_for(Square sq, Move* list)
 	return list;
 }
 
-/* Static Exchange Evaluation */
-template<Color C>
-int Position::see_to(Square to)
-{
-	// TODO: Fix this mess
-	int value = 0;
-	Bitboard occ = all_pieces<WHITE>() | all_pieces<BLACK>();
-
-	PieceType pt = PAWN;
-	Square from = NO_SQUARE;
-	Bitboard att = 0;
-	for (; pt <= KING; ++pt) {
-		switch (pt) {
-			case PAWN: {
-				att = attacker<C, PAWN>(to, occ); 
-				// if (rank_of(to) == relative_rank<C>(Rank::RANK8)) att |= (piece_bb[make_piece(C, PAWN)] & MASK_RANK[relative_rank<C>(Rank::RANK7)]);
-				break;
-			}
-			case KNIGHT: att = attacker<C, KNIGHT>(to, occ); break;
-			case BISHOP: att = attacker<C, BISHOP>(to, occ); break;
-			case ROOK: att = attacker<C, ROOK>(to, occ); break;
-			case QUEEN: att = attacker<C, QUEEN>(to, occ); break;
-			case KING: att = attacker<C, KING>(to, occ); break;
-		}
-
-		if (att) {
-			from = pop_lsb(&att);
-			break;
-		}
-	}
-
-	if (from != NO_SQUARE) {
-		Piece captured = at(to);
-		if (type_of(captured) == KING) return piece_value[KING];
-		Move m;
-
-		LOG_INFO("{} {} {}", from, pt, fen());
-
-		if (pt == PAWN && rank_of(to) == relative_rank<C>(RANK8)) {
-			m = Move(from, to, captured == NO_PIECE ? MoveFlags::PR_QUEEN : MoveFlags::PC_QUEEN);
-			value += (piece_value[QUEEN] - piece_value[PAWN]);
-		}
-		else {
-			m = Move(from, to, captured == NO_PIECE ? MoveFlags::QUIET : MoveFlags::CAPTURE);
-		}
-
-		play<C>(m);
-		value += piece_value[type_of(captured)] - std::max(0, see_to<~C>(to));
-		undo<C>(m);
-	}
-
-	return value;
-}
-
+// Is the SEE of the current move greater or equal than our threshold?
 template <Color C>
-int Position::see(Move m) {
+bool Position::see(Move m, int threshold) {
+	Square from = m.from();
 	Square to = m.to();
 	Piece captured = at(to);
 	int value = 0; 
 
-	if (m.flags() == MoveFlags::EN_PASSANT) {
-		value = piece_value[PAWN];
+	// For moves like promotion-captures, and en passant, we automatically assume that they are worth searching (value >= 0)
+	if (m.flags() != MoveFlags::CAPTURE) {
+		return 0 >= threshold;
 	}
-	else if (captured != NO_PIECE) {
-		value = piece_value[type_of(captured)];
+	
+	value = piece_value[type_of(captured)] - threshold;
+	if (value < 0) return false;
+
+	value = piece_value[type_of(board[from])] - value;
+	if (value <= 0) return true;
+
+	Bitboard occ = (all_pieces<WHITE>() | all_pieces<BLACK>()) ^ from ^ to;
+	Bitboard att = attackers<WHITE>(to, occ) | attackers<BLACK>(to, occ);
+	Bitboard current_attackers, bb;
+	Color to_play = C;
+
+	while (true) {
+		to_play = ~to_play;
+
+		// The way we remove an attacker after having "cast it at the (to) square" is by removing it from the occ bitboard, which should 
+		// keep track of all pieces on the board
+		att &= occ;
+
+		// If current player does not have any more attackers available
+		if (!(current_attackers = att & (to_play == WHITE ? all_pieces<WHITE>() : all_pieces<BLACK>()))) {
+			break;
+		}
+
+		// If there are enemy pieces that are pinning some of our pieces, as long as they are on their original square, our pinned must be removed from the attackers.
+		if (pinners(~to_play) & occ) {
+			// Although we are aware of the fact that the vanishing of a pinner due to the SEE cycle might lead to an effetive change 
+			// in the pinned board, in order to prioritize speed we just assume that, if there are any pinners, ALL pinned pieces must not be evaluated
+			current_attackers &= ~pinned(to_play);
+
+			if (!current_attackers) break;
+		}
+
+		if ((bb = current_attackers & piece_bb[make_piece(to_play, PAWN)])) {
+			// Value now contains the evaluation (assuming capture) of the current piece by opponent (~to_play).
+			// This would mean that value is the evaluation for the opponent (~to_play). If opponent is us (C), then break
+			// for values strictly less than 0 (to_play == C is 0) and return false. If opponent is them (~C), then break
+			// for values less or equal to 0 (to_play == C is 1) and return true.
+			if ((value = piece_value[PAWN] - value) < int(to_play == C)) break;
+
+			occ ^= pop_lsb(&bb);
+			att |= attacks<BISHOP>(to, occ) & (piece_bb[WHITE_BISHOP] | piece_bb[BLACK_BISHOP] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN]);
+		}
+		else if ((bb = current_attackers & piece_bb[make_piece(to_play, KNIGHT)])) {
+			if ((value = piece_value[KNIGHT] - value) < int(to_play == C)) break;
+
+			occ ^= pop_lsb(&bb);
+		}
+		else if ((bb = current_attackers & piece_bb[make_piece(to_play, BISHOP)])) {
+			if ((value = piece_value[BISHOP] - value) < int(to_play == C)) break;
+
+			occ ^= pop_lsb(&bb);
+			att |= attacks<BISHOP>(to, occ) & (piece_bb[WHITE_BISHOP] | piece_bb[BLACK_BISHOP] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN]);
+		}
+		else if ((bb = current_attackers & piece_bb[make_piece(to_play, ROOK)])) {
+			if ((value = piece_value[ROOK] - value) < int(to_play == C)) break;
+
+			occ ^= pop_lsb(&bb);
+			att |= attacks<ROOK>(to, occ) & (piece_bb[WHITE_ROOK] | piece_bb[BLACK_ROOK] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN]);
+		}
+		else if ((bb = current_attackers & piece_bb[make_piece(to_play, QUEEN)])) {
+			if ((value = piece_value[QUEEN] - value) < int(to_play == C)) break;
+
+			occ ^= pop_lsb(&bb);
+			att |= (attacks<ROOK>(to, occ) & (piece_bb[WHITE_ROOK] | piece_bb[BLACK_ROOK] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN])) |
+				   (attacks<BISHOP>(to, occ) & (piece_bb[WHITE_BISHOP] | piece_bb[BLACK_BISHOP] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN]));
+		}
+		else {
+			// If we reach this point, we are pondering if we can capture with the king. If opponent still has attackers
+			// then we cannot capture with the king, and we must stop the sequence. If opponent has no more attackers
+			// then capture with the king and evaluate
+			if (att & (to_play == WHITE ? ))
+		}
 	}
-	else if (!m.is_promotion()) {
-		return 0;
-	}
 
-	if (m.is_promotion()) {
-		value += (piece_value[QUEEN] - piece_value[PAWN]);
-	}
-
-
-	play<C>(m);
-
-	value -= std::max(0, see_to<~C>(to));
-
-	undo<C>(m);
-
-	return value;
+	return to_play == C;
 }
