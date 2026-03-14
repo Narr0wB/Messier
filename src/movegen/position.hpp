@@ -169,6 +169,12 @@ public:
 	template<Color C> void play(Move m);
 	template<Color C> void undo(Move m);
 
+	inline void play_null_move() { side_to_play = ~side_to_play; };
+	inline void undo_null_move() { side_to_play = ~side_to_play; };
+
+	inline void play_dynamic(Move m, Color C) { C == WHITE ? play<WHITE>(m) : play<BLACK>(m); };
+	inline void undo_dynamic(Move m, Color C) { C == WHITE ? undo<WHITE>(m) : undo<BLACK>(m); };
+
 	template<Color C> 
 	Move *generate_legals_for(Square sq, Move* list);
 
@@ -178,6 +184,7 @@ public:
 	template<GenType type, Color Us>
 	Move *generate(Move* list) const;
 
+	bool is_pseudo_legal(Move m);
 
 	inline Bitboard pinned(Color C) const;
 	inline Bitboard pinners(Color C) const;

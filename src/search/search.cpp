@@ -1,6 +1,7 @@
 
 #include <atomic>
 #include <algorithm>
+#include <unordered_set>
 
 #include "search/search.hpp" 
 #include "search/evaluate.hpp"
@@ -102,6 +103,7 @@ namespace Search {
         int tt_eval = tte.eval;
         Move tt_move = tte.move;
         int tt_score = tte.score;
+        // if (tt_score == -MATE_SCORE)
         uint8_t tt_bound = tte.flags;
         int8_t tt_depth = tte.depth;
 
@@ -181,7 +183,7 @@ namespace Search {
         if (best_score == -INFTY) {
             // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
             best_score = ss->in_check ? -MATE_SCORE + ss->ply : 0;
-            node.score = best_score;
+            node.score = ss->in_check ? -MATE_SCORE : 0;
             node.flags = FLAG_EXACT;
         }
 
@@ -248,6 +250,7 @@ namespace Search {
         int tt_eval = tte.eval;
         Move tt_move = tte.move;
         int tt_score = tte.score;
+        // if (tt_score == -MATE_SCORE) tt_score += ss->ply; 
         uint8_t tt_bound = tte.flags;
         int8_t tt_depth = tte.depth;
 
@@ -280,6 +283,26 @@ namespace Search {
             return static_eval + piece_value[QUEEN];   
         }
 
+        if (!PVnode 
+            && !ss->in_check 
+            && depth <= 3 
+            && static_eval - (depth * 75) >= Bbeta) // Margin scales with depth (e.g. 75cp per ply)
+        {
+            return static_eval;
+        }
+
+        // Null Move Pruning
+
+        if (!PVnode &&
+            !ss->in_check) {
+            int NMPReduction = 2;
+            pos.play_null_move();
+            int v = -search<~C>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1 - NMPReduction);
+            pos.undo_null_move();
+            if (v >= Bbeta) 
+                return v;
+        }
+
         Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, static_eval, Move::none());
 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
@@ -293,6 +316,7 @@ namespace Search {
                 score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
             }
             else {
+                // Late Move Reductions
                 if (depth >= 3 
                     && move_count > 3
                     && m.is_quiet() 
@@ -333,13 +357,13 @@ namespace Search {
                     // ply 3: N  N  N  m3 m4
                     // ply 4: N  N  N  N  m4 
                     
-                    if (PVnode) {
-                        m_ctx.pv_table[ply][ply] = m;
-                        for (int i = ply + 1; i < m_ctx.pv_table_len[ply + 1]; ++i) {
-                            m_ctx.pv_table[ply][i] = m_ctx.pv_table[ply + 1][i];
-                        }
-                        m_ctx.pv_table_len[ply] = m_ctx.pv_table_len[ply + 1];
-                    }
+                    // if (PVnode) {
+                    //     m_ctx.pv_table[ply][ply] = m;
+                    //     for (int i = ply + 1; i < m_ctx.pv_table_len[ply + 1]; ++i) {
+                    //         m_ctx.pv_table[ply][i] = m_ctx.pv_table[ply + 1][i];
+                    //     }
+                    //     m_ctx.pv_table_len[ply] = m_ctx.pv_table_len[ply + 1];
+                    // }
 
 
                     // Rank history moves
@@ -368,14 +392,14 @@ namespace Search {
             }
         }
 
-        m_tt.push(hash, node);
-
         if (best_score == -INFTY) {
-            // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate.
-            // If there is no check, then it is a stalemate
-            if (ss->in_check) { return -MATE_SCORE + ss->ply; }
-            else { return 0; }
+            // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
+            best_score = ss->in_check ? -MATE_SCORE + ss->ply : 0;
+            node.score = ss->in_check ? -MATE_SCORE : 0;
+            node.flags = FLAG_EXACT;
         }
+
+        m_tt.push(hash, node);
 
         return best_score;
     }
@@ -451,18 +475,18 @@ namespace Search {
                 break;
             }
 
-            // LOG_INFO("aw_iterations {}", m_info.aw_iterations);
-            
             uint64_t elapsed = end_current_search - start_current_search;
             uint32_t nps = elapsed > 0 ? (m_info.nodes * 1000) / elapsed : 0;   
 
-            std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_info.tt_hits << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " AWit " << m_info.aw_iterations << " pvlen " << m_ctx.pv_table_len[0] << " pv ";
-            for (int j = 0; j < m_ctx.pv_table_len[0]; j++) {
-                std::cout << m_ctx.pv_table[0][j] << " ";
+            int pv_len = extract_pv();
+
+            std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_info.tt_hits << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " AWit " << m_info.aw_iterations << " pvlen " << pv_len << " pv ";
+            for (int j = 0; j < pv_len; j++) {
+                std::cout << m_pv[j] << " ";
             }
             std::cout << std::endl;
 
-            best_move = m_ctx.pv_table[0][0];
+            best_move = m_pv[0];
         }
 
         auto end_time = time_ms();
@@ -473,6 +497,33 @@ namespace Search {
         std::cout << "bestmove ";
         std::cout << best_move;
         std::cout << std::endl;
+    }
+    
+    int Worker::extract_pv() {
+        int count = 0;
+        Color to_play = m_root.turn();
+
+        std::unordered_set<uint64_t> visited;
+        while (count < MAX_PLY) {
+            // Cycle prevention
+            if (visited.count(m_root.get_hash())) break;
+            else visited.insert(m_root.get_hash());
+
+            auto [tt_hit, tte] = m_tt.probe(m_root.get_hash());
+
+            if (!tt_hit || tte.move == Move::none() || !m_root.is_pseudo_legal(tte.move)) break;
+
+            m_pv[count++] = tte.move;
+            m_root.play_dynamic(tte.move, to_play);
+            to_play = ~to_play;
+        }
+
+        for (int i = count - 1; 0 <= i; --i) {
+            to_play = ~to_play;
+            m_root.undo_dynamic(m_pv[i], to_play);
+        }
+
+        return count;
     }
 
     // Explicit template definitions

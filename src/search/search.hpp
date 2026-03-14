@@ -79,6 +79,8 @@ namespace Search {
             SearchInfo m_info;
             SearchStack m_ss[MAX_PLY + 1];
 
+            std::vector<Move> m_pv;
+
             void idle_loop();
             void kill();
 
@@ -90,6 +92,8 @@ namespace Search {
             template <Color C, bool PVnode>
             int search(Position& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth);
 
+            int extract_pv();
+
         public:
             Worker(TTable& table) : 
                 m_state(WorkerState::IDLE),
@@ -97,7 +101,8 @@ namespace Search {
                 m_cfg(),
                 m_ctx(),
                 m_info(),
-                m_tt(table)
+                m_tt(table),
+                m_pv(MAX_PLY)
             {}
             ~Worker() { kill(); }
 		

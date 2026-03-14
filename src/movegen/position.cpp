@@ -147,4 +147,66 @@ void Position::reset()
 	}
 }
 
+bool Position::is_pseudo_legal(Move m) 
+{
+	Color to_play = side_to_play;
+
+	Bitboard us = to_play == WHITE ? all_pieces<WHITE>() : all_pieces<BLACK>();
+	Square from = m.from();
+	Square to   = m.to();
+	MoveFlags f = m.flags();
+	Piece  p1   = at(from);
+	Piece  p2   = at(to);
+
+	if (p1 == NO_PIECE || color_of(p1) != to_play) return false;
+	if (m.is_capture() && f != MoveFlags::EN_PASSANT && (p2 == NO_PIECE || bitboard_at(to) & us)) return false;
+	if (m.is_quiet()   && (p2 != NO_PIECE)) return false;
+
+	Bitboard occ = all_pieces<WHITE>() | all_pieces<BLACK>();
+
+	switch (type_of(p1)) {
+		case PAWN: {
+			Direction up = Direction(to_play == WHITE ? NORTH : -NORTH);
+
+			if (f == MoveFlags::QUIET && to != from + up) return false;
+			if (f == MoveFlags::DOUBLE_PUSH && 
+				(to != from + up + up || rank_of(from) != (to_play == WHITE ? Rank::RANK2 : Rank::RANK7) || at(from + up) != NO_PIECE)) return false;
+			if (f == MoveFlags::EN_PASSANT && to != history[game_ply].epsq) return false;
+			if (m.is_capture() && 
+				!((to_play == WHITE ? pawn_attacks<WHITE>(from) : pawn_attacks<BLACK>(from)) & bitboard_at(to))) return false;
+
+			return true;
+		}
+		case KNIGHT: {
+			return attacks<KNIGHT>(from, occ) & bitboard_at(to);
+		}
+		case BISHOP:  {
+			return attacks<BISHOP>(from, occ) & bitboard_at(to);
+		}
+		case ROOK: {
+			return attacks<ROOK>(from, occ) & bitboard_at(to);
+		}
+		case QUEEN: {
+			return attacks<QUEEN>(from, occ) & bitboard_at(to);
+		}
+		case KING: {
+			if (f == MoveFlags::OO) {
+				return (history[game_ply].entry & (to_play == WHITE ? WHITE_OO_MASK : BLACK_OO_MASK)) && 
+					   !(to_play == WHITE ? in_check<WHITE>() : in_check<BLACK>()) && 
+					   !(occ & (to_play == WHITE ? oo_blockers_mask<WHITE>() : oo_blockers_mask<BLACK>()));
+			}
+
+			if (f == MoveFlags::OOO) {
+				return (history[game_ply].entry & (to_play == WHITE ? WHITE_OOO_MASK : BLACK_OOO_MASK)) && 
+					   !(to_play == WHITE ? in_check<WHITE>() : in_check<BLACK>()) &&
+					   !(occ & (to_play == WHITE ? ooo_blockers_mask<WHITE>() : ooo_blockers_mask<BLACK>()));
+			}
+
+			return attacks<KING>(from, occ) & bitboard_at(to);
+		}
+	}
+
+	return true;
+}
+
 
