@@ -178,6 +178,10 @@ public:
 	template<GenType type, Color Us>
 	Move *generate(Move* list) const;
 
+
+	inline Bitboard pinned(Color C) const;
+	inline Bitboard pinners(Color C) const;
+
 	template<Color C> int see_to(Square to);
 	template<Color C> bool see(Move m, int threshold);
 };
@@ -270,24 +274,29 @@ template<PieceType type, Color C> inline Bitboard Position::attacks_by() const {
 		}
 	}
 
-
 	return a;
 }
 
-
-/*template<Color C>
-Bitboard Position::pinned(Square s, Bitboard us, Bitboard occ) const {
+inline Bitboard Position::pinned(Color C) const {
+	Square s = bsf(piece_bb[make_piece(C, KING)]);
+	Bitboard us = C == WHITE ? all_pieces<WHITE>() : all_pieces<BLACK>();
+	Bitboard pinners_bb = pinners(C);
 	Bitboard pinned = 0;
 
-	Bitboard pinners = get_xray_rook_attacks(s, occ, us) & orthogonal_sliders<~C>();
-	while (pinners) pinned |= SQUARES_BETWEEN_BB[s][pop_lsb(&pinners)] & us;
-
-	pinners = get_xray_bishop_attacks(s, occ, us) & diagonal_sliders<~C>();
-	while (pinners) pinned |= SQUARES_BETWEEN_BB[s][pop_lsb(&pinners)] & us;
-
+	while (pinners_bb) pinned |= (SQUARES_BETWEEN_BB[s][pop_lsb(&pinners_bb)] & us);
 	return pinned;
 }
 
+inline Bitboard Position::pinners(Color C) const {
+	Square s = bsf(piece_bb[make_piece(C, KING)]);
+	Bitboard us = C == WHITE ? all_pieces<WHITE>() : all_pieces<BLACK>();
+	Bitboard occ = all_pieces<WHITE>() | all_pieces<BLACK>();
+
+	return (get_xray_rook_attacks(s, occ, us) & (C == WHITE ? orthogonal_sliders<BLACK>() : orthogonal_sliders<WHITE>())) |
+		   (get_xray_bishop_attacks(s, occ, us) & (C == WHITE ? diagonal_sliders<BLACK>() : diagonal_sliders<WHITE>()));
+}
+
+/*
 template<Color C>
 Bitboard Position::blockers_to(Square s, Bitboard occ) const {
 	Bitboard blockers = 0;
@@ -1691,6 +1700,7 @@ Move* Position::generate_legals_for(Square sq, Move* list)
 }
 
 // Is the SEE of the current move greater or equal than our threshold?
+// Inspired by Stockfish
 template <Color C>
 bool Position::see(Move m, int threshold) {
 	Square from = m.from();
@@ -1709,10 +1719,11 @@ bool Position::see(Move m, int threshold) {
 	value = piece_value[type_of(board[from])] - value;
 	if (value <= 0) return true;
 
-	Bitboard occ = (all_pieces<WHITE>() | all_pieces<BLACK>()) ^ from ^ to;
+	Bitboard occ = (all_pieces<WHITE>() | all_pieces<BLACK>()) ^ bitboard_at(from) ^ bitboard_at(to);
 	Bitboard att = attackers<WHITE>(to, occ) | attackers<BLACK>(to, occ);
 	Bitboard current_attackers, bb;
 	Color to_play = C;
+	int res = 1;
 
 	while (true) {
 		to_play = ~to_play;
@@ -1726,8 +1737,10 @@ bool Position::see(Move m, int threshold) {
 			break;
 		}
 
+		res ^= 1;
+
 		// If there are enemy pieces that are pinning some of our pieces, as long as they are on their original square, our pinned must be removed from the attackers.
-		if (pinners(~to_play) & occ) {
+		if (pinners(to_play) & occ) {
 			// Although we are aware of the fact that the vanishing of a pinner due to the SEE cycle might lead to an effetive change 
 			// in the pinned board, in order to prioritize speed we just assume that, if there are any pinners, ALL pinned pieces must not be evaluated
 			current_attackers &= ~pinned(to_play);
@@ -1736,46 +1749,42 @@ bool Position::see(Move m, int threshold) {
 		}
 
 		if ((bb = current_attackers & piece_bb[make_piece(to_play, PAWN)])) {
-			// Value now contains the evaluation (assuming capture) of the current piece by opponent (~to_play).
-			// This would mean that value is the evaluation for the opponent (~to_play). If opponent is us (C), then break
-			// for values strictly less than 0 (to_play == C is 0) and return false. If opponent is them (~C), then break
-			// for values less or equal to 0 (to_play == C is 1) and return true.
-			if ((value = piece_value[PAWN] - value) < int(to_play == C)) break;
+			if ((value = piece_value[PAWN] - value) < res) break;
 
-			occ ^= pop_lsb(&bb);
+			occ ^= lsb(bb);
 			att |= attacks<BISHOP>(to, occ) & (piece_bb[WHITE_BISHOP] | piece_bb[BLACK_BISHOP] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN]);
 		}
 		else if ((bb = current_attackers & piece_bb[make_piece(to_play, KNIGHT)])) {
-			if ((value = piece_value[KNIGHT] - value) < int(to_play == C)) break;
+			if ((value = piece_value[KNIGHT] - value) < res) break;
 
-			occ ^= pop_lsb(&bb);
+			occ ^= lsb(bb);
 		}
 		else if ((bb = current_attackers & piece_bb[make_piece(to_play, BISHOP)])) {
-			if ((value = piece_value[BISHOP] - value) < int(to_play == C)) break;
+			if ((value = piece_value[BISHOP] - value) < res) break;
 
-			occ ^= pop_lsb(&bb);
+			occ ^= lsb(bb);
 			att |= attacks<BISHOP>(to, occ) & (piece_bb[WHITE_BISHOP] | piece_bb[BLACK_BISHOP] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN]);
 		}
 		else if ((bb = current_attackers & piece_bb[make_piece(to_play, ROOK)])) {
-			if ((value = piece_value[ROOK] - value) < int(to_play == C)) break;
+			if ((value = piece_value[ROOK] - value) < res) break;
 
-			occ ^= pop_lsb(&bb);
+			occ ^= lsb(bb);
 			att |= attacks<ROOK>(to, occ) & (piece_bb[WHITE_ROOK] | piece_bb[BLACK_ROOK] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN]);
 		}
 		else if ((bb = current_attackers & piece_bb[make_piece(to_play, QUEEN)])) {
-			if ((value = piece_value[QUEEN] - value) < int(to_play == C)) break;
+			if ((value = piece_value[QUEEN] - value) < res) break;
 
-			occ ^= pop_lsb(&bb);
+			occ ^= lsb(bb);
 			att |= (attacks<ROOK>(to, occ) & (piece_bb[WHITE_ROOK] | piece_bb[BLACK_ROOK] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN])) |
 				   (attacks<BISHOP>(to, occ) & (piece_bb[WHITE_BISHOP] | piece_bb[BLACK_BISHOP] | piece_bb[WHITE_QUEEN] | piece_bb[BLACK_QUEEN]));
 		}
 		else {
 			// If we reach this point, we are pondering if we can capture with the king. If opponent still has attackers
-			// then we cannot capture with the king, and we must stop the sequence. If opponent has no more attackers
-			// then capture with the king and evaluate
-			if (att & (to_play == WHITE ? ))
+			// then we cannot capture with the king, and we must stop the sequence, returning the non-commited result. 
+			// If opponent has no more attackers then capture with the king and return commited result.
+			return (att & (to_play == WHITE ? all_pieces<BLACK>() : all_pieces<WHITE>())) ? res ^ 1 : res;
 		}
 	}
 
-	return to_play == C;
+	return res;
 }

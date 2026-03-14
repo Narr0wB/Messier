@@ -31,7 +31,7 @@ struct Transposition {
     flags(f), hash(h), depth(d), score(sc), move(m), eval(e) {};
 };
 
-#define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_EVAL, NO_SCORE, Move::none() }
+#define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_SCORE, NO_EVAL, Move::none() }
 #define DEFAULT_CAPACITY (1 << 25)
 #define MAX_CAPACITY (1 << 26)
 

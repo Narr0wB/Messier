@@ -122,7 +122,7 @@ namespace Search {
         ss->in_check = pos.in_check<C>();
         Move m = Move::none();
 
-        Transposition node(FLAG_ALPHA, pos.get_hash(), -1, NO_SCORE, NO_SCORE, Move::none());
+        Transposition node(FLAG_ALPHA, pos.get_hash(), 0, NO_SCORE, NO_SCORE, Move::none());
 
         if (!ss->in_check) {
             // Stand pat, check if current position is already better than Beta (or atleast better than alfa)
@@ -151,7 +151,8 @@ namespace Search {
             move_count++;
 
             if (!ss->in_check) {
-                if (pos.see<C>(m) < 0) continue;
+                if (!m.is_capture() && !m.is_promotion()) continue;
+                if (!pos.see<C>(m, 0)) continue;
             }  
 
             pos.play<C>(m);
@@ -385,8 +386,7 @@ namespace Search {
     {
         int max_depth = m_cfg.max_depth;
         int current_depth = 1;
-        int last_score = 0;
-        int score_avg = 0;
+        int last_score = NO_SCORE;
 
         Color to_play = m_root.turn();
         Move best_move = Move::none();
@@ -397,9 +397,8 @@ namespace Search {
             int root_depth = current_depth;
             int depth      = root_depth;
             int aw_margin  = 20;
-            int delta      = 50;
-            int alpha      = current_depth == 1 ? -INFTY : score_avg - aw_margin;
-            int beta       = current_depth == 1 ? INFTY  : score_avg + aw_margin;
+            int alpha      = last_score != NO_SCORE ? last_score - aw_margin : -INFTY;
+            int beta       = last_score != NO_SCORE ? last_score + aw_margin : INFTY;
             int score      = 0;
             m_info = { 0 };
 
@@ -417,11 +416,8 @@ namespace Search {
             // Aspiration window search
             while (true) {
                 m_info.aw_iterations++;
-                if (to_play == WHITE)
-                    score = search<WHITE, true>(m_root, m_ss, alpha, beta, depth);
-                else
-                    score = search<BLACK, true>(m_root, m_ss, alpha, beta, depth);
-
+                if (to_play == WHITE) score = search<WHITE, true>(m_root, m_ss, alpha, beta, depth);
+                else score = search<BLACK, true>(m_root, m_ss, alpha, beta, depth);
 
                 if ((m_stop) ||
                     (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 
@@ -429,20 +425,22 @@ namespace Search {
                 {
                     break;
                 }
-            
+
+                aw_margin += aw_margin / 2;
+
                 if (score <= alpha) {
-                    beta = (alpha + beta) / 2;
-                    alpha = std::max<int64_t>(-INFTY, alpha - (delta * 3));
+                    alpha = std::max<int64_t>(-INFTY, alpha - aw_margin);
                 }
                 else if (score >= beta) {
-                    beta = std::min<int64_t>(INFTY, beta + (delta * 3));
+                    beta = std::min<int64_t>(INFTY, beta + aw_margin);
                 }
                 else {
                     break;
                 }
             }
 
-            score_avg = score_avg == 0 ? score : (score_avg + score) / 2;
+
+            last_score = score;
 
             auto end_current_search = time_ms();
 

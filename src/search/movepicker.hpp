@@ -20,7 +20,7 @@ static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
 };
 
 #define GOOD_CAPTURE_THRESHOLD 0 
-#define GOOD_QUIET_THRESHOLD   200 
+#define GOOD_QUIET_THRESHOLD   30 
 
 enum Stage : int {
     MAIN_TT,
@@ -111,14 +111,14 @@ class MovePicker {
                     m_cur = m_end_bad_captures = m_moves;
                     m_end_cur = m_end_captures = m_end_generated = score(list);
 
-                    std::sort(m_cur, m_end_cur);
+                    std::sort(m_cur, m_end_cur, std::greater<ExtMove>());
                     ++m_stage;
                     goto top;
                 }
 
                 case GOOD_CAPTURES: {
                     Move m = select([&]() {
-                        if (m_pos.see<C>(m_cur->to()) > GOOD_CAPTURE_THRESHOLD)
+                        if (m_pos.see<C>(*m_cur, GOOD_CAPTURE_THRESHOLD))
                             return true;
                         
                         // Since re-searching the array of capures once again is expensive, we move the bad captures to the front
@@ -138,7 +138,7 @@ class MovePicker {
                     
                     m_end_cur = m_end_generated = score(list);
 
-                    std::sort(m_cur, m_end_cur);
+                    std::sort(m_cur, m_end_cur, std::greater<ExtMove>());
                     ++m_stage;
                     // Intentional fallthrough to the next stage
                 }
@@ -168,7 +168,7 @@ class MovePicker {
                 }
 
                 case BAD_QUIETS: 
-                    return select([&]() { return m_cur->score < GOOD_QUIET_THRESHOLD; });
+                    return select([&]() { return m_cur->score <= GOOD_QUIET_THRESHOLD; });
 
                 case EVASION_INIT: {
                     MoveList<GenType::EVASIONS, C> list(m_pos);
@@ -208,8 +208,7 @@ class MovePicker {
         Move select(Pred predicate) {
             for (; m_cur < m_end_cur; ++m_cur) {
                 // TODO: reapply tt_move check
-                // if (*m_cur != m_ttmove && predicate())
-                if (predicate())
+                if (*m_cur != m_ttmove && predicate())
                     return *m_cur++;
             }
             
@@ -242,7 +241,8 @@ class MovePicker {
                 const Piece     captured = m_pos.at(to);
                 
                 if constexpr (type == GenType::CAPTURES) {
-                    m.score = mvv_lva_lookup[type_of(pc)][type_of(captured)];
+                    PieceType captured_type = captured == NO_PIECE ? PAWN : type_of(captured);
+                    m.score = mvv_lva_lookup[type_of(pc)][captured_type];
                 }
                 else if constexpr (type == GenType::QUIETS) {
                     // History heuristic

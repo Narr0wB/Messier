@@ -121,6 +121,10 @@ Square pop_lsb(Bitboard* b) {
 	return Square(lsb);
 }
 
+Bitboard lsb(Bitboard b) {
+	return b & -b;
+}
+
 //Returns the index of the least significant bit in the bitboard
 Square bsf(Bitboard b) {
 	return Square(DEBRUIJN64[MAGIC * (b ^ (b - 1)) >> 58]);
