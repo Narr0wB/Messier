@@ -53,6 +53,10 @@ extern Bitboard PAWN_ATTACKS[NCOLORS][NSQUARES];
 extern Bitboard PSEUDO_LEGAL_ATTACKS[NPIECE_TYPES][NSQUARES];
 
 extern const int piece_position_value[10][64];
+extern const int white_king_mg_table[64];
+extern const int black_king_mg_table[64];
+extern const int white_king_eg_table[64];
+extern const int black_king_eg_table[64];
 
 extern void initialise_squares_between();
 extern void initialise_line();

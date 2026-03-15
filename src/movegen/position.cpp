@@ -116,8 +116,13 @@ void Position::move_piece(Square from, Square to) {
 	Bitboard mask = SQUARE_BB[from] | SQUARE_BB[to];
 	piece_bb[board[from]] ^= mask;
 	piece_bb[board[to]] &= ~mask;
+
+	Piece pc = board[to];
 	board[to] = board[from];
 	board[from] = NO_PIECE;
+
+	if (pc != NO_PIECE) 
+		color_of(pc) == WHITE ? white_material -= piece_value[type_of(pc)] : black_material -= piece_value[type_of(pc)];
 }
 
 //Moves a piece to an empty square. Note that it is an error if the <to> square contains a piece
@@ -133,6 +138,8 @@ void Position::reset()
 	game_ply = 0;
 	hash = 0;
 	side_to_play = WHITE;
+	white_material = 0;
+	black_material = 0;
 
 	for (int i = 0; i < NPIECES; ++i) {
 		piece_bb[i] = 0;

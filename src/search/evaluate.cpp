@@ -5,24 +5,30 @@ using namespace std::chrono_literals;
 
 int evaluate(Position& position) 
 {
-    int score = 0;
+    int score = position.material(WHITE) - position.material(BLACK);
 
-    for (int p = 0; p < NPIECE_TYPES; ++p) {
+    for (int p = 0; p < KING; ++p) {
         Bitboard white_piece_bb = position.bitboard_of(make_piece(WHITE, (PieceType)p));
         Bitboard black_piece_bb = position.bitboard_of(make_piece(BLACK, (PieceType)p));
 
         while (white_piece_bb) {   
             Square piece_sq = pop_lsb(&white_piece_bb);
-            if (p != PieceType::KING) score += piece_position_value[p][piece_sq];
-            score += piece_value[p];
+            score += piece_position_value[p][piece_sq];
         }
 
         while (black_piece_bb) {
             Square piece_sq = pop_lsb(&black_piece_bb);
-            if (p != PieceType::KING) score -= piece_position_value[p + 5][piece_sq];
-            score -= piece_value[p];
+            score -= piece_position_value[p + 5][piece_sq];
         }
     }
+
+    int phase = position.npm();
+    if (phase > 24) phase = 24;
+    Square white_king = bsf(position.bitboard_of(WHITE_KING));
+    Square black_king = bsf(position.bitboard_of(BLACK_KING));
+
+    score += (white_king_mg_table[white_king] * phase + white_king_eg_table[white_king] * (24 - phase)) / 24 -
+             (black_king_mg_table[black_king] * phase + black_king_eg_table[black_king] * (24 - phase)) / 24;
 
     return score;
 }

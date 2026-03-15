@@ -292,15 +292,22 @@ namespace Search {
         }
 
         // Null Move Pruning
+        if (!PVnode 
+            && !ss->in_check 
+            && depth >= 3 
+            && ss->static_eval >= Bbeta) 
+        {
+            int NMPReduction = 3 + (depth / 6);
 
-        if (!PVnode &&
-            !ss->in_check) {
-            int NMPReduction = 2;
             pos.play_null_move();
-            int v = -search<~C>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1 - NMPReduction);
+            int v = -search<~C, false>(pos, ss + 1, -Bbeta, -Bbeta + 1, depth - 1 - NMPReduction);
             pos.undo_null_move();
-            if (v >= Bbeta) 
-                return v;
+
+            if (v >= Bbeta) {
+                score = v >= MATE_SCORE - MAX_PLY ? Bbeta : v;
+                m_tt.push(hash, {FLAG_BETA, hash, (int8_t)depth, score, static_eval, Move::none()});
+                return score;
+            }
         }
 
         Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, static_eval, Move::none());
@@ -312,7 +319,7 @@ namespace Search {
             pos.play<C>(m);
 
             // PVS
-            if (move_count == 1) {
+            if (move_count < 2) {
                 score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
             }
             else {
@@ -340,6 +347,8 @@ namespace Search {
 
             pos.undo<C>(m);
 
+            // if (depth == 2) LOG_INFO("mc: {} m: {} see: {} tt_move: {} score: {}", move_count, m, pos.see<C>(m, 0), tt_move, score);
+
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
@@ -350,24 +359,8 @@ namespace Search {
                     Aalpha = best_score;
                     node.flags = FLAG_EXACT;
                     
-                    // Triangular transposition tables
-                    // ply 0: m0 m1 m2 m3 m4
-                    // ply 1: N  m1 m2 m3 m4
-                    // ply 2: N  N  m2 m3 m4
-                    // ply 3: N  N  N  m3 m4
-                    // ply 4: N  N  N  N  m4 
-                    
-                    // if (PVnode) {
-                    //     m_ctx.pv_table[ply][ply] = m;
-                    //     for (int i = ply + 1; i < m_ctx.pv_table_len[ply + 1]; ++i) {
-                    //         m_ctx.pv_table[ply][i] = m_ctx.pv_table[ply + 1][i];
-                    //     }
-                    //     m_ctx.pv_table_len[ply] = m_ctx.pv_table_len[ply + 1];
-                    // }
-
-
                     // Rank history moves
-                    if (m.is_quiet()) m_ctx.history_moves[m.from()][m.to()] += depth * depth;
+                    if (m.is_quiet()) m_ctx.history_moves[m.from()][m.to()] += depth;
 
                     // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
@@ -511,7 +504,8 @@ namespace Search {
 
             auto [tt_hit, tte] = m_tt.probe(m_root.get_hash());
 
-            if (!tt_hit || tte.move == Move::none() || !m_root.is_pseudo_legal(tte.move)) break;
+            // TODO: Fix || !m_root.is_pseudo_legal(tte.move)
+            if (!tt_hit || tte.move == Move::none()) break;
 
             m_pv[count++] = tte.move;
             m_root.play_dynamic(tte.move, to_play);

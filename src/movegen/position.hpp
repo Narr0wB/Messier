@@ -97,6 +97,10 @@ private:
 	//The zobrist hash of the position, which can be incrementally updated and rolled back after each
 	//make/unmake
 	uint64_t hash;
+
+	int white_material;
+	int black_material;
+
 public:
 	//The history of non-recoverable information
 	UndoInfo history[256];
@@ -111,7 +115,7 @@ public:
 	
 	
 	Position() : piece_bb{ 0 }, side_to_play(WHITE), game_ply(0), board{}, 
-		hash(0) {
+		hash(0), white_material(0), black_material(0) {
 		//Sets all squares on the board as empty
 		for (int i = 0; i < 64; i++) board[i] = NO_PIECE;
 		history[0] = UndoInfo();
@@ -123,13 +127,18 @@ public:
 		board[s] = pc;
 		piece_bb[pc] |= SQUARE_BB[s];
 		hash ^= zobrist::zobrist_table[pc][s];
+
+		color_of(pc) == WHITE ? white_material += piece_value[type_of(pc)] : black_material += piece_value[type_of(pc)];
 	}
 
 	//Removes a piece from a particular square and updates the hash. 
 	inline void remove_piece(Square s) {
 		hash ^= zobrist::zobrist_table[board[s]][s];
 		piece_bb[board[s]] &= ~SQUARE_BB[s];
+		Piece pc = board[s];
 		board[s] = NO_PIECE;
+
+		color_of(pc) == WHITE ? white_material -= piece_value[type_of(pc)] : black_material -= piece_value[type_of(pc)];
 	}
 
 	void move_piece(Square from, Square to);
@@ -163,14 +172,18 @@ public:
 
 	template<Color C> inline bool in_check() const { return attackers<~C>(bsf(bitboard_of(C, KING)), all_pieces<WHITE>() | all_pieces<BLACK>()); }
 
+	inline int npm() const;
+	inline int npm(Color C) const;
+	inline int material(Color C) const { return C == WHITE ? white_material : black_material; };
+
 	template<Color C> bool checkmate() const;
 	template<Color C> bool stalemate() const;
 
 	template<Color C> void play(Move m);
 	template<Color C> void undo(Move m);
 
-	inline void play_null_move() { side_to_play = ~side_to_play; };
-	inline void undo_null_move() { side_to_play = ~side_to_play; };
+	inline void play_null_move();
+	inline void undo_null_move();
 
 	inline void play_dynamic(Move m, Color C) { C == WHITE ? play<WHITE>(m) : play<BLACK>(m); };
 	inline void undo_dynamic(Move m, Color C) { C == WHITE ? undo<WHITE>(m) : undo<BLACK>(m); };
@@ -679,6 +692,23 @@ void Position::undo(const Move m) {
 
 
 	side_to_play = ~side_to_play;
+	--game_ply;
+}
+
+inline void Position::play_null_move() {
+	side_to_play = ~side_to_play;
+	hash ^= zobrist::side_to_move[BLACK];
+
+	++game_ply;
+
+	history[game_ply] = UndoInfo(history[game_ply - 1]);
+	history[game_ply].epsq = NO_SQUARE;
+}
+
+inline void Position::undo_null_move() {
+	side_to_play = ~side_to_play;
+	hash ^= zobrist::side_to_move[BLACK];
+	 
 	--game_ply;
 }
 
@@ -1794,4 +1824,29 @@ bool Position::see(Move m, int threshold) {
 	}
 
 	return res;
+}
+
+inline int Position::npm() const {
+	return pop_count(piece_bb[WHITE_KNIGHT]) + pop_count(piece_bb[BLACK_KNIGHT]) +
+		   pop_count(piece_bb[WHITE_BISHOP]) + pop_count(piece_bb[BLACK_BISHOP]) +
+		   pop_count(piece_bb[WHITE_ROOK]) * 2 + pop_count(piece_bb[BLACK_ROOK]) * 2 +
+		   pop_count(piece_bb[WHITE_QUEEN]) * 4 + pop_count(piece_bb[BLACK_QUEEN]) * 4;
+}
+
+inline int Position::npm(Color C) const {
+	switch (C) {
+		case WHITE:
+			return pop_count(piece_bb[WHITE_KNIGHT]) +
+		   		   pop_count(piece_bb[WHITE_BISHOP]) +
+		   		   pop_count(piece_bb[WHITE_ROOK]) * 2 +
+		   		   pop_count(piece_bb[WHITE_QUEEN]) * 4;
+
+		case BLACK:
+			return pop_count(piece_bb[BLACK_KNIGHT]) +
+		   		   pop_count(piece_bb[BLACK_BISHOP]) +
+		   		   pop_count(piece_bb[BLACK_ROOK]) * 2 +
+		   		   pop_count(piece_bb[BLACK_QUEEN]) * 4;
+	}	
+
+	return 0;
 }

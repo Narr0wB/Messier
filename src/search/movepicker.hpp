@@ -19,8 +19,8 @@ static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
     /* KING   */ {100, 200,   220,   230, 800,  900},
 };
 
-#define GOOD_CAPTURE_THRESHOLD 0 
-#define GOOD_QUIET_THRESHOLD   30 
+#define GOOD_CAPTURE_THRESHOLD 100 
+#define GOOD_QUIET_THRESHOLD   -1 
 
 enum Stage : int {
     MAIN_TT,
@@ -100,8 +100,7 @@ class MovePicker {
                 case QUIESCENCE_TT:
                 case EVASION_TT:
                     ++m_stage;
-                    // TODO: FIX THE TT MOVE
-                    if (m_ttmove != Move::none()) { return m_ttmove; }
+                    if (m_ttmove != Move::none() && m_pos.is_pseudo_legal(m_ttmove)) { return m_ttmove; }
                     goto top;
                 
                 case QUIESCENCE_INIT:
@@ -176,12 +175,17 @@ class MovePicker {
                     m_cur = m_moves;
                     m_end_cur = m_end_generated = score(list);
 
+                    std::sort(m_cur, m_end_cur, std::greater<ExtMove>());
                     ++m_stage;
-                    // Intentional fallthrough to the next stage
+                    goto top;
                 }
 
-                case EVASION:
                 case QUIESCENCE: {
+                    Move m = select([&]() { return true; });
+                    return m;
+                }
+
+                case EVASION: {
                     Move m = select([]() { return true; });
                     return m;
                 }
@@ -225,7 +229,8 @@ class MovePicker {
             if constexpr (type == GenType::QUIETS) {
                 threat_by_lesser[PAWN] = 0;
                 threat_by_lesser[KNIGHT] = threat_by_lesser[BISHOP] = m_pos.attacks_by<PAWN, ~C>(); 
-                threat_by_lesser[QUEEN] = threat_by_lesser[BISHOP] | m_pos.attacks_by<KNIGHT, ~C>() | m_pos.attacks_by<BISHOP, ~C>();
+                threat_by_lesser[ROOK] = threat_by_lesser[BISHOP] | m_pos.attacks_by<BISHOP, ~C>() | m_pos.attacks_by<KNIGHT, ~C>();
+                threat_by_lesser[QUEEN] = threat_by_lesser[ROOK] | m_pos.attacks_by<ROOK, ~C>();
                 threat_by_lesser[KING] = threat_by_lesser[QUEEN] | m_pos.attacks_by<QUEEN, ~C>();
             }
 
@@ -248,18 +253,22 @@ class MovePicker {
                     // History heuristic
                     m.score = m_ctx.history_moves[from][to];
 
-                    // Killer heuristic
-                    m.score += m_ctx.killer_moves[m_ply][0] == m ? 900 : 0;
-                    m.score += m_ctx.killer_moves[m_ply][1] == m ? 800 : 0;
+                    // // Killer heuristic
+                    m.score += m_ctx.killer_moves[m_ply][0] == m ? (1 << 22) : 0;
+                    m.score += m_ctx.killer_moves[m_ply][1] == m ? (1 << 22) - 1 : 0;
+
+                    if (m.flags() == MoveFlags::PR_QUEEN) {
+                        m.score += (1 << 23);
+                    }
                     
                     // Assign a bonus for escaping a threat by a lesser piece
-                    int v = (threat_by_lesser[pt] & (1 << to)) ? -30 : 40 * bool((threat_by_lesser[pt] & (1 << from)));
+                    int v = (threat_by_lesser[pt] & (1ULL << to)) ? -30 : 40 * bool((threat_by_lesser[pt] & (1ULL << from)));
                     m.score += piece_value[pt] * v;
                 }
                 else {
                     // GenType::EVASIONS
 
-                    if (m.is_capture()) m.score = piece_value[pt] + (1 << 20);
+                    if (m.is_capture()) m.score = (1 << 20) + piece_value[pt];
                     else m.score = m_ctx.history_moves[from][to];
                 }
             }
