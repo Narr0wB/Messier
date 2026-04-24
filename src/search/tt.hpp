@@ -23,7 +23,7 @@ struct Transposition {
     int32_t eval;
     Move move;
     uint8_t flags;
-    uint8_t depth;
+    int8_t depth;
 
     Transposition() = default;
 

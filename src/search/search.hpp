@@ -55,7 +55,7 @@ namespace Search {
         Move pv_table[MAX_TABLE][MAX_TABLE];
         int  pv_table_len[MAX_TABLE];
         Move killer_moves[MAX_TABLE][2];
-        int  history_moves[64][64];
+        int  history_moves[2][64][64];
     };
 
     enum class WorkerState {

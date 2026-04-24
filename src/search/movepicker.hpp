@@ -251,7 +251,7 @@ class MovePicker {
                 }
                 else if constexpr (type == GenType::QUIETS) {
                     // History heuristic
-                    m.score = m_ctx.history_moves[from][to];
+                    m.score = m_ctx.history_moves[reinterpret_cast<size_t>(C)][from][to];
 
                     // // Killer heuristic
                     m.score += m_ctx.killer_moves[m_ply][0] == m ? (1 << 22) : 0;
@@ -269,7 +269,7 @@ class MovePicker {
                     // GenType::EVASIONS
 
                     if (m.is_capture()) m.score = (1 << 20) + piece_value[pt];
-                    else m.score = m_ctx.history_moves[from][to];
+                    else m.score = m_ctx.history_moves[reinterpret_cast<size_t>(C)][from][to];
                 }
             }
 

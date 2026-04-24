@@ -129,7 +129,10 @@ namespace Search {
 
         if (!ss->in_check) {
             // Stand pat, check if current position is already better than Beta (or atleast better than alfa)
-            ss->static_eval = node.eval = tt_hit ? tt_eval : corrected_eval<C>(pos); 
+            ss->static_eval = node.eval = tt_hit ? 
+                (tt_eval != NO_SCORE ? tt_eval : -INFTY) : 
+                corrected_eval<C>(pos); 
+
             best_score = ss->static_eval;
             node.score = best_score;
 
@@ -276,7 +279,9 @@ namespace Search {
             static_eval = ss->static_eval = 0;
         }
         else {
-            static_eval = ss->static_eval = tt_hit ? tt_eval : corrected_eval<C>(pos); 
+            static_eval = ss->static_eval = tt_hit ? 
+                (tt_eval != NO_SCORE ? tt_eval : -INFTY) : 
+                corrected_eval<C>(pos); 
         }
 
         // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a queen, is still under alpha then 
@@ -298,7 +303,7 @@ namespace Search {
             && !ss->in_check 
             && depth >= 3 
             && ss->static_eval >= Bbeta
-            && pos.npm() > 6) 
+            && pos.npm(C) > 1) 
         {
             int NMPReduction = 3 + (depth / 6);
 
@@ -350,6 +355,13 @@ namespace Search {
 
             pos.undo<C>(m);
 
+            if ((m_stop) ||
+                (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
+                (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit))) 
+            {
+                return 0;
+            }
+
             // if (depth == 2) LOG_INFO("mc: {} m: {} see: {} tt_move: {} score: {}", move_count, m, pos.see<C>(m, 0), tt_move, score);
 
             if (score > best_score) {
@@ -362,8 +374,6 @@ namespace Search {
                     Aalpha = best_score;
                     node.flags = FLAG_EXACT;
                     
-                    // Rank history moves
-                    if (m.is_quiet()) m_ctx.history_moves[m.from()][m.to()] += depth;
 
                     // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
@@ -372,19 +382,15 @@ namespace Search {
                             m_ctx.killer_moves[ply][0] = m;
                         }
 
+                        // Rank history moves
+                        if (m.is_quiet()) m_ctx.history_moves[reinterpret_cast<size_t>(C)][m.from()][m.to()] += depth;
+
                         node.flags = FLAG_BETA;
                         m_tt.push(hash, node);
 
                         return best_score;
                     }
                 }
-            }
-
-            if ((m_stop) ||
-                (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
-                (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit))) 
-            {
-                return 0;
             }
         }
 
@@ -436,8 +442,11 @@ namespace Search {
             // Aspiration window search
             while (true) {
                 m_info.aw_iterations++;
-                if (to_play == WHITE) score = search<WHITE, true>(m_root, m_ss, alpha, beta, depth);
-                else score = search<BLACK, true>(m_root, m_ss, alpha, beta, depth);
+
+                if (to_play == WHITE) 
+                    score = search<WHITE, true>(m_root, m_ss, alpha, beta, depth);
+                else 
+                    score = search<BLACK, true>(m_root, m_ss, alpha, beta, depth);
 
                 if ((m_stop) ||
                     (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 
@@ -459,17 +468,16 @@ namespace Search {
                 }
             }
 
+            if ((m_stop) ||
+                (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 
+                (m_cfg.nodeset && m_info.nodes > m_cfg.nodeslimit)) 
+            {
+                break;
+            }
 
             last_score = score;
 
             auto end_current_search = time_ms();
-
-            // If we are out of time or over the limit for nodes (if there is one) then break
-            if ((m_stop) ||
-                (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 
-                (m_cfg.nodeset && m_info.nodes > m_cfg.nodeslimit)) {
-                break;
-            }
 
             uint64_t elapsed = end_current_search - start_current_search;
             uint32_t nps = elapsed > 0 ? (m_info.nodes * 1000) / elapsed : 0;   
