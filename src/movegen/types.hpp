@@ -210,7 +210,7 @@ public:
 
 	inline bool is_capture()   const { return flags() & MoveFlags::CAPTURE; }
 	inline bool is_promotion() const { return flags() & MoveFlags::PROMOTIONS; }
-	inline bool is_quiet()     const { return flags() & MoveFlags::QUIET; }
+	inline bool is_quiet()     const { return !(flags() & (MoveFlags::CAPTURE | MoveFlags::PROMOTIONS)); }
 
 	inline bool operator==(Move a) const { return move == a.move; }
 	inline bool operator!=(Move a) const { return move != a.move; }

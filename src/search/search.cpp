@@ -106,7 +106,10 @@ namespace Search {
         uint8_t tt_bound = tte.flags;
         int8_t tt_depth  = tte.depth;
 
-        if (tt_score == -MATE_SCORE) tt_score += ss->ply; 
+        if (tt_hit && tt_score >= MATE_SCORE - MAX_PLY) 
+            tt_score -= ss->ply; 
+        else if (tt_hit && tt_score <= -MATE_SCORE + MAX_PLY)
+            tt_score += ss->ply;
 
         // If we are not in a pv node, and we got a useful score from the TT, return early
         // NOTE: we do not check if the tte depth is greater (or equal) than the current depth because in quiescence any depth IS greater or equal than 0 
@@ -129,8 +132,8 @@ namespace Search {
 
         if (!ss->in_check) {
             // Stand pat, check if current position is already better than Beta (or atleast better than alfa)
-            ss->static_eval = node.eval = tt_hit ? 
-                (tt_eval != NO_SCORE ? tt_eval : -INFTY) : 
+            ss->static_eval = node.eval = (tt_hit && tt_eval != NO_SCORE) ? 
+                tt_eval :
                 corrected_eval<C>(pos); 
 
             best_score = ss->static_eval;
@@ -170,6 +173,12 @@ namespace Search {
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
+
+                if (score >= MATE_SCORE - MAX_PLY)
+                    node.score = score + ss->ply;
+                else if (score <= -MATE_SCORE + MAX_PLY)
+                    node.score = score - ss->ply;
+
                 node.move  = m;
 
                 if (score > Aalpha) {
@@ -257,7 +266,10 @@ namespace Search {
         uint8_t tt_bound = tte.flags;
         int8_t tt_depth  = tte.depth;
 
-        if (tt_score == -MATE_SCORE) tt_score += ss->ply; 
+        if (tt_hit && tt_score >= MATE_SCORE - MAX_PLY) 
+            tt_score -= ss->ply; 
+        else if (tt_hit && tt_score <= -MATE_SCORE + MAX_PLY)
+            tt_score += ss->ply;
 
         if (tt_hit && 
             tt_depth >= depth &&
@@ -279,15 +291,15 @@ namespace Search {
             static_eval = ss->static_eval = 0;
         }
         else {
-            static_eval = ss->static_eval = tt_hit ? 
-                (tt_eval != NO_SCORE ? tt_eval : -INFTY) : 
+            static_eval = ss->static_eval = (tt_hit && tt_eval != NO_SCORE) ? 
+                tt_eval : 
                 corrected_eval<C>(pos); 
         }
 
         // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a queen, is still under alpha then 
         // prune this node by returning the static evaluation  
-        if (depth == 1 && !ss->in_check && static_eval + piece_value[QUEEN] < Aalpha) {
-            return static_eval + piece_value[QUEEN];   
+        if (depth == 1 && !ss->in_check && static_eval + piece_value[ROOK] < Aalpha) {
+            return static_eval + piece_value[ROOK];   
         }
 
         if (!PVnode 
@@ -367,13 +379,18 @@ namespace Search {
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
+
+                if (score >= MATE_SCORE - MAX_PLY)
+                    node.score = score + ss->ply;
+                else if (score <= -MATE_SCORE + MAX_PLY)
+                    node.score = score - ss->ply;
+
                 node.move  = m;
 
                 // We have found a move that is better than the current alpha
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
                     node.flags = FLAG_EXACT;
-                    
 
                     // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
@@ -383,7 +400,7 @@ namespace Search {
                         }
 
                         // Rank history moves
-                        if (m.is_quiet()) m_ctx.history_moves[reinterpret_cast<size_t>(C)][m.from()][m.to()] += depth;
+                        if (m.is_quiet()) m_ctx.history_moves[static_cast<size_t>(C)][m.from()][m.to()] += depth;
 
                         node.flags = FLAG_BETA;
                         m_tt.push(hash, node);

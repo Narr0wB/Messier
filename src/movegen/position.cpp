@@ -175,12 +175,15 @@ bool Position::is_pseudo_legal(Move m)
 		case PAWN: {
 			Direction up = Direction(to_play == WHITE ? NORTH : -NORTH);
 
-			if (f == MoveFlags::QUIET && to != from + up) return false;
-			if (f == MoveFlags::DOUBLE_PUSH && 
-				(to != from + up + up || rank_of(from) != (to_play == WHITE ? Rank::RANK2 : Rank::RANK7) || at(from + up) != NO_PIECE)) return false;
-			if (f == MoveFlags::EN_PASSANT && to != history[game_ply].epsq) return false;
-			if (m.is_capture() && 
-				!((to_play == WHITE ? pawn_attacks<WHITE>(from) : pawn_attacks<BLACK>(from)) & bitboard_at(to))) return false;
+			if (f == MoveFlags::QUIET && to != from + up) 
+                return false;
+			if (f == MoveFlags::DOUBLE_PUSH && (to != from + up + up || rank_of(from) != (to_play == WHITE ? Rank::RANK2 : Rank::RANK7) || at(from + up) != NO_PIECE)) 
+                return false;
+			if (f == MoveFlags::EN_PASSANT && to != history[game_ply].epsq) 
+                return false;
+			if (m.is_capture() && !((to_play == WHITE ? pawn_attacks<WHITE>(from) : pawn_attacks<BLACK>(from)) & bitboard_at(to))) 
+                return false;
+            // if (m.is_promotion() && (to != from + up || ))
 
 			return true;
 		}
@@ -198,15 +201,19 @@ bool Position::is_pseudo_legal(Move m)
 		}
 		case KING: {
 			if (f == MoveFlags::OO) {
-				return (history[game_ply].entry & (to_play == WHITE ? WHITE_OO_MASK : BLACK_OO_MASK)) && 
+				bool valid =(history[game_ply].entry & (to_play == WHITE ? WHITE_OO_MASK : BLACK_OO_MASK)) && 
 					   !(to_play == WHITE ? in_check<WHITE>() : in_check<BLACK>()) && 
 					   !(occ & (to_play == WHITE ? oo_blockers_mask<WHITE>() : oo_blockers_mask<BLACK>()));
+                
+                return valid && (from == Square::e1 || from == Square::e8) && (to == Square::g1 || to == Square::g8);
 			}
 
 			if (f == MoveFlags::OOO) {
-				return (history[game_ply].entry & (to_play == WHITE ? WHITE_OOO_MASK : BLACK_OOO_MASK)) && 
+				bool valid = (history[game_ply].entry & (to_play == WHITE ? WHITE_OOO_MASK : BLACK_OOO_MASK)) && 
 					   !(to_play == WHITE ? in_check<WHITE>() : in_check<BLACK>()) &&
 					   !(occ & (to_play == WHITE ? ooo_blockers_mask<WHITE>() : ooo_blockers_mask<BLACK>()));
+
+                return valid && (from == Square::e1 || from == Square::e8) && (to == Square::c1 || to == Square::c8);
 			}
 
 			return attacks<KING>(from, occ) & bitboard_at(to);
