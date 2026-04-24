@@ -9,6 +9,17 @@ uint64_t zobrist::side_to_move[NCOLORS];
 uint64_t zobrist::castling_rights[16];
 uint64_t zobrist::enps_file[8];
 
+constexpr uint8_t CASTLING_MASKS[64] = {
+    13, 15, 15, 15, 12, 15, 15, 14, // Rank 1: a1(13), e1(12), h1(14)
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 2
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 3
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 4
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 5
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 6
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 7
+     7, 15, 15, 15,  3, 15, 15, 11  // Rank 8: a8(7),  e8(3),  h8(11)
+};
+
 //Initializes the zobrist table with random 64-bit numbers
 void zobrist::initialise_zobrist_keys() {
 	PRNG rng(70026072);
@@ -107,15 +118,19 @@ void Position::set(const std::string& fen, Position& p) {
 		switch (token) {
 		case 'K':
 			p.history[p.game_ply].entry &= ~WHITE_OO_MASK;
+			p.history[p.game_ply].castling |= (1 << 3);
 			break;
 		case 'Q':
 			p.history[p.game_ply].entry &= ~WHITE_OOO_MASK;
+			p.history[p.game_ply].castling |= (1 << 2);
 			break;
 		case 'k':
 			p.history[p.game_ply].entry &= ~BLACK_OO_MASK;
+			p.history[p.game_ply].castling |= (1 << 1);
 			break;
 		case 'q':
 			p.history[p.game_ply].entry &= ~BLACK_OOO_MASK;
+			p.history[p.game_ply].castling |= (1 << 0);
 			break;
 		}
 	}

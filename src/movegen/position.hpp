@@ -75,11 +75,13 @@ struct UndoInfo {
     // The hash of the current position being saved
     uint64_t hash;
 
-	constexpr UndoInfo() : entry(0), captured(NO_PIECE), epsq(NO_SQUARE), hash(0) {}
+	uint8_t castling;
+
+	constexpr UndoInfo() : entry(0), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), castling(0) {}
 	
 	//This preserves the entry bitboard across moves
 	UndoInfo(const UndoInfo& prev) : 
-		entry(prev.entry), captured(NO_PIECE), epsq(NO_SQUARE), hash(0) {}
+		entry(prev.entry), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), castling(prev.castling) {}
 };
 
 class Position {
@@ -176,7 +178,7 @@ public:
 
 	inline int npm() const;
 	inline int npm(Color C) const;
-	inline uint8_t castling() const; 
+	inline uint8_t castling() const { return history[game_ply].castling; }
 	inline int material(Color C) const { return C == WHITE ? white_material : black_material; }
 
 	template<Color C> bool checkmate() const;
@@ -546,15 +548,16 @@ void Position::play(const Move m) {
 	if (history[game_ply].epsq != NO_SQUARE) 
 		hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
 
+	hash ^= zobrist::castling_rights[castling()];
+
 	side_to_play = ~side_to_play;
 	++game_ply;
 
-	hash ^= zobrist::castling_rights[castling()];
-
 	history[game_ply] = UndoInfo(history[game_ply - 1]);
+	history[game_ply].castling &= (CASTLING_MASKS[m.from()] & CASTLING_MASKS[m.to()]);
+	history[game_ply].entry |= SQUARE_BB[m.to()] | SQUARE_BB[m.from()];
 
 	MoveFlags type = m.flags();
-	history[game_ply].entry |= SQUARE_BB[m.to()] | SQUARE_BB[m.from()];
 
 	switch (type) {
 	case QUIET:
@@ -1861,11 +1864,4 @@ inline int Position::npm(Color C) const {
 	}	
 
 	return 0;
-}
-
-inline uint8_t Position::castling() const {
-	return int(!bool(history[game_ply].entry & WHITE_OO_MASK)) << 3 | 
-		   int(!bool(history[game_ply].entry & WHITE_OOO_MASK)) << 2 | 
-		   int(!bool(history[game_ply].entry & BLACK_OO_MASK)) << 1 |
-		   int(!bool(history[game_ply].entry & BLACK_OOO_MASK)) << 0; 
 }
