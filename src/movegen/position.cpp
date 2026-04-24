@@ -6,14 +6,26 @@
 //Used to incrementally update the hash key of a position
 uint64_t zobrist::zobrist_table[NPIECES][NSQUARES];
 uint64_t zobrist::side_to_move[NCOLORS];
+uint64_t zobrist::castling_rights[16];
+uint64_t zobrist::enps_file[8];
 
 //Initializes the zobrist table with random 64-bit numbers
 void zobrist::initialise_zobrist_keys() {
 	PRNG rng(70026072);
-	for (int i = 0; i < NPIECES; i++)
-		for (int j = 0; j < NSQUARES; j++)
+	for (int i = 0; i < NPIECES; i++) {
+		for (int j = 0; j < NSQUARES; j++) {
 			zobrist::zobrist_table[i][j] = rng.rand<uint64_t>();
+		}
+	}
 		
+	for (int i = 0; i < 16; ++i) {
+		zobrist::castling_rights[i] = rng.rand<uint64_t>();
+	}
+
+	for (int i = 0; i < 8; ++i) {
+		zobrist::enps_file[i] = rng.rand<uint64_t>();
+	}
+
 	zobrist::side_to_move[0] = 0;
 	zobrist::side_to_move[1] = rng.rand<uint64_t>();
 }
@@ -71,6 +83,7 @@ std::string Position::fen() const {
 }
 
 //Updates a position according to an FEN string
+// TODO: Add support for reading the enps square, and the move counter
 void Position::set(const std::string& fen, Position& p) {
 	int square = a8;
 	for (char ch : fen.substr(0, fen.find(' '))) {
@@ -106,6 +119,8 @@ void Position::set(const std::string& fen, Position& p) {
 			break;
 		}
 	}
+
+	p.hash ^= zobrist::castling_rights[p.castling()];
 }
 	
 

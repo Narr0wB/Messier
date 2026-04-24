@@ -54,6 +54,8 @@ public:
 namespace zobrist {
 	extern uint64_t side_to_move[NCOLORS];
 	extern uint64_t zobrist_table[NPIECES][NSQUARES];
+	extern uint64_t castling_rights[16];
+	extern uint64_t enps_file[8];
 	extern void initialise_zobrist_keys();
 }
 
@@ -174,7 +176,8 @@ public:
 
 	inline int npm() const;
 	inline int npm(Color C) const;
-	inline int material(Color C) const { return C == WHITE ? white_material : black_material; };
+	inline uint8_t castling() const; 
+	inline int material(Color C) const { return C == WHITE ? white_material : black_material; }
 
 	template<Color C> bool checkmate() const;
 	template<Color C> bool stalemate() const;
@@ -518,15 +521,19 @@ bool Position::stalemate() const
 	b2 = pawn_attacks<Us>(bitboard_of(Us, PAWN) & not_pinned);
 
 	b1 = bitboard_of(Us, KNIGHT) & not_pinned;
-	while (b1) b2 |= attacks<KNIGHT>(pop_lsb(&b1), all);
+	while (b1) 
+		b2 |= attacks<KNIGHT>(pop_lsb(&b1), all);
 
 	b1 = our_diag_sliders & not_pinned;
-	while (b1) b2 |= attacks<BISHOP>(pop_lsb(&b1), all);
+	while (b1) 
+		b2 |= attacks<BISHOP>(pop_lsb(&b1), all);
 
 	b1 = our_orth_sliders & not_pinned;
-	while (b1) b2 |= attacks<ROOK>(pop_lsb(&b1), all);
+	while (b1) 
+		b2 |= attacks<ROOK>(pop_lsb(&b1), all);
 
-	if (b2) { return 0; }
+	if (b2) 
+		return 0;
 
 	return 1;
 }
@@ -534,8 +541,15 @@ bool Position::stalemate() const
 //Plays a move in the position
 template<Color C>
 void Position::play(const Move m) {
+    history[game_ply].hash = hash;
+
+	if (history[game_ply].epsq != NO_SQUARE) 
+		hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
+
 	side_to_play = ~side_to_play;
 	++game_ply;
+
+	hash ^= zobrist::castling_rights[castling()];
 
 	history[game_ply] = UndoInfo(history[game_ply - 1]);
 
@@ -553,6 +567,7 @@ void Position::play(const Move m) {
 			
 		//This is the square behind the pawn that was double-pushed
 		history[game_ply].epsq = m.from() + relative_dir<C>(NORTH);
+		hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
 		break;
 	case OO:
 		if (C == WHITE) {
@@ -629,16 +644,12 @@ void Position::play(const Move m) {
 
 	// hash the black_to_move
 	hash ^= zobrist::side_to_move[BLACK];
-
-    history[game_ply].hash = get_hash();
+	hash ^= zobrist::castling_rights[castling()];
 }
 
 //Undos a move in the current position, rolling it back to the previous position
 template<Color C>
 void Position::undo(const Move m) {
-	// unhash the black_to_move
-	hash ^= zobrist::side_to_move[BLACK];
-
 	MoveFlags type = m.flags();
 	switch (type) {
 	case QUIET:
@@ -690,9 +701,10 @@ void Position::undo(const Move m) {
 		break;
 	}
 
-
 	side_to_play = ~side_to_play;
 	--game_ply;
+
+	hash = history[game_ply].hash;
 }
 
 inline void Position::play_null_move() {
@@ -1849,4 +1861,11 @@ inline int Position::npm(Color C) const {
 	}	
 
 	return 0;
+}
+
+inline uint8_t Position::castling() const {
+	return int(!bool(history[game_ply].entry & WHITE_OO_MASK)) << 3 | 
+		   int(!bool(history[game_ply].entry & WHITE_OOO_MASK)) << 2 | 
+		   int(!bool(history[game_ply].entry & BLACK_OO_MASK)) << 1 |
+		   int(!bool(history[game_ply].entry & BLACK_OOO_MASK)) << 0; 
 }
