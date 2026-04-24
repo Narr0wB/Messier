@@ -100,12 +100,13 @@ namespace Search {
         
         uint64_t hash = pos.get_hash();
         auto [tt_hit, tte] = m_tt.probe(hash);
-        int tt_eval = tte.eval;
-        Move tt_move = tte.move;
-        int tt_score = tte.score;
-        // if (tt_score == -MATE_SCORE)
+        int tt_eval      = tte.eval;
+        Move tt_move     = tte.move;
+        int tt_score     = tte.score;
         uint8_t tt_bound = tte.flags;
-        int8_t tt_depth = tte.depth;
+        int8_t tt_depth  = tte.depth;
+
+        if (tt_score == -MATE_SCORE) tt_score += ss->ply; 
 
         // If we are not in a pv node, and we got a useful score from the TT, return early
         // NOTE: we do not check if the tte depth is greater (or equal) than the current depth because in quiescence any depth IS greater or equal than 0 
@@ -247,12 +248,13 @@ namespace Search {
         }
 
         auto [tt_hit, tte] = m_tt.probe(hash);
-        int tt_eval = tte.eval;
-        Move tt_move = tte.move;
-        int tt_score = tte.score;
-        // if (tt_score == -MATE_SCORE) tt_score += ss->ply; 
+        int tt_eval      = tte.eval;
+        Move tt_move     = tte.move;
+        int tt_score     = tte.score;
         uint8_t tt_bound = tte.flags;
-        int8_t tt_depth = tte.depth;
+        int8_t tt_depth  = tte.depth;
+
+        if (tt_score == -MATE_SCORE) tt_score += ss->ply; 
 
         if (tt_hit && 
             tt_depth >= depth &&
@@ -295,7 +297,8 @@ namespace Search {
         if (!PVnode 
             && !ss->in_check 
             && depth >= 3 
-            && ss->static_eval >= Bbeta) 
+            && ss->static_eval >= Bbeta
+            && pos.npm() > 6) 
         {
             int NMPReduction = 3 + (depth / 6);
 
