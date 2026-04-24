@@ -253,9 +253,9 @@ class MovePicker {
                     // History heuristic
                     m.score = m_ctx.history_moves[static_cast<size_t>(C)][from][to];
 
-                    // // Killer heuristic
-                    m.score += m_ctx.killer_moves[m_ply][0] == m ? (1 << 15) : 0;
-                    m.score += m_ctx.killer_moves[m_ply][1] == m ? (1 << 15) - 1 : 0;
+                    // Killer heuristic
+                    m.score += m_ctx.killer_moves[m_ply][0] == m ? (1 << 16) : 0;
+                    m.score += m_ctx.killer_moves[m_ply][1] == m ? (1 << 16) - 1 : 0;
 
                     if (m.flags() == MoveFlags::PR_QUEEN) {
                         m.score += (1 << 23);
@@ -268,7 +268,7 @@ class MovePicker {
                 else {
                     // GenType::EVASIONS
 
-                    if (m.is_capture()) m.score = (1 << 20) + piece_value[pt];
+                    if (m.is_capture()) m.score = (1 << 20) - piece_value[pt];
                     else m.score = m_ctx.history_moves[static_cast<size_t>(C)][from][to];
                 }
             }

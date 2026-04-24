@@ -220,7 +220,6 @@ namespace Search {
         ss->in_check = pos.in_check<C>();
         uint64_t hash = pos.get_hash();
         Move m = Move::none();
-        m_ctx.pv_table_len[ply] = ply;
 
         // If depth is below zero, dip into quiescence search
         if (depth <= 0) {
@@ -298,7 +297,7 @@ namespace Search {
 
         // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a queen, is still under alpha then 
         // prune this node by returning the static evaluation  
-        if (depth == 1 && !ss->in_check && static_eval + piece_value[ROOK] < Aalpha) {
+        if (!PVnode && depth == 1 && !ss->in_check && static_eval + piece_value[ROOK] < Aalpha) {
             return static_eval + piece_value[ROOK];   
         }
 
@@ -360,12 +359,14 @@ namespace Search {
                     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
                 }
 
-                if (Aalpha < score && score < Bbeta) {
+                if (Aalpha < score && score < Bbeta)
                     score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
-                }
             }
 
             pos.undo<C>(m);
+
+            // if (depth == m_cfg.max_depth)
+            //     LOG_INFO("{}, {}", m, score);
 
             if ((m_stop) ||
                 (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
@@ -373,8 +374,6 @@ namespace Search {
             {
                 return 0;
             }
-
-            // if (depth == 2) LOG_INFO("mc: {} m: {} see: {} tt_move: {} score: {}", move_count, m, pos.see<C>(m, 0), tt_move, score);
 
             if (score > best_score) {
                 best_score = score;
@@ -437,9 +436,9 @@ namespace Search {
         auto start_time = time_ms();
 
         for (; current_depth <= max_depth; ++current_depth) {
-            int root_depth = current_depth;
+            int root_depth = m_cfg.max_depth = current_depth;
             int depth      = root_depth;
-            int aw_margin  = 20;
+            int aw_margin  = 50;
             int alpha      = last_score != NO_SCORE ? last_score - aw_margin : -INFTY;
             int beta       = last_score != NO_SCORE ? last_score + aw_margin : INFTY;
             int score      = 0;
@@ -522,28 +521,29 @@ namespace Search {
     
     int Worker::extract_pv() {
         int count = 0;
-        Color to_play = m_root.turn();
+        Position pos = m_root;
+        Color to_play = pos.turn();
 
         std::unordered_set<uint64_t> visited;
         while (count < MAX_PLY) {
             // Cycle prevention
-            if (visited.count(m_root.get_hash())) break;
-            else visited.insert(m_root.get_hash());
+            if (visited.count(pos.get_hash())) break;
+            else visited.insert(pos.get_hash());
 
-            auto [tt_hit, tte] = m_tt.probe(m_root.get_hash());
+            auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
 
             // TODO: Fix || !m_root.is_pseudo_legal(tte.move)
-            if (!tt_hit || tte.move == Move::none()) break;
+            if (!tt_hit || tte.move == Move::none() || !pos.is_pseudo_legal(tte.move)) break;
 
             m_pv[count++] = tte.move;
-            m_root.play_dynamic(tte.move, to_play);
+            pos.play_dynamic(tte.move, to_play);
             to_play = ~to_play;
         }
 
-        for (int i = count - 1; 0 <= i; --i) {
-            to_play = ~to_play;
-            m_root.undo_dynamic(m_pv[i], to_play);
-        }
+        // for (int i = count - 1; 0 <= i; --i) {
+        //     to_play = ~to_play;
+        //     pos.undo_dynamic(m_pv[i], to_play);
+        // }
 
         return count;
     }

@@ -211,6 +211,21 @@ public:
 	inline bool is_capture()   const { return flags() & MoveFlags::CAPTURE; }
 	inline bool is_promotion() const { return flags() & MoveFlags::PROMOTIONS; }
 	inline bool is_quiet()     const { return !(flags() & (MoveFlags::CAPTURE | MoveFlags::PROMOTIONS)); }
+	inline PieceType promotion() const { 
+		if (!is_promotion())
+			return PAWN;
+		
+		if ((flags() & 0b0111) == MoveFlags::PR_QUEEN)
+			return QUEEN;
+		else if ((flags() & 0b0111) == MoveFlags::PR_ROOK)
+			return ROOK;
+		else if ((flags() & 0b0111) == MoveFlags::PR_BISHOP)
+			return BISHOP;
+		else if ((flags() & 0b0111) == MoveFlags::PR_KNIGHT)
+			return KNIGHT;
+		else
+			return PAWN;
+	}
 
 	inline bool operator==(Move a) const { return move == a.move; }
 	inline bool operator!=(Move a) const { return move != a.move; }

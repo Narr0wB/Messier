@@ -50,7 +50,6 @@ public:
 	}
 };
 
-
 namespace zobrist {
 	extern uint64_t side_to_move[NCOLORS];
 	extern uint64_t zobrist_table[NPIECES][NSQUARES];
@@ -58,6 +57,17 @@ namespace zobrist {
 	extern uint64_t enps_file[8];
 	extern void initialise_zobrist_keys();
 }
+
+constexpr uint8_t CASTLING_MASKS[64] = {
+    13, 15, 15, 15, 12, 15, 15, 14, // Rank 1: a1(13), e1(12), h1(14)
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 2
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 3
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 4
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 5
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 6
+    15, 15, 15, 15, 15, 15, 15, 15, // Rank 7
+     7, 15, 15, 15,  3, 15, 15, 11  // Rank 8: a8(7),  e8(3),  h8(11)
+};
 
 //Stores position information which cannot be recovered on undo-ing a move
 struct UndoInfo {
@@ -107,7 +117,7 @@ private:
 
 public:
 	//The history of non-recoverable information
-	UndoInfo history[256];
+	UndoInfo history[1024];
 	
 	//The bitboard of enemy pieces that are currently attacking the king, updated whenever generate_moves()
 	//is called
@@ -238,15 +248,18 @@ inline Bitboard Position::all_pieces() const {
 //Returns a bitboard containing all pieces of a given color attacking a particluar square
 template<Color C> 
 inline Bitboard Position::attackers(Square s, Bitboard occ) const {
-	return C == WHITE ? (pawn_attacks<BLACK>(s) & piece_bb[WHITE_PAWN]) |
+	return C == WHITE ? 
+		(pawn_attacks<BLACK>(s) & piece_bb[WHITE_PAWN]) |
 		(attacks<KNIGHT>(s, occ) & piece_bb[WHITE_KNIGHT]) |
 		(attacks<BISHOP>(s, occ) & (piece_bb[WHITE_BISHOP] | piece_bb[WHITE_QUEEN])) |
-		(attacks<ROOK>(s, occ) & (piece_bb[WHITE_ROOK] | piece_bb[WHITE_QUEEN])) 
+		(attacks<ROOK>(s, occ) & (piece_bb[WHITE_ROOK] | piece_bb[WHITE_QUEEN])) |
+		(attacks<KING>(s, occ) & (piece_bb[WHITE_KING]))
 		:
 		(pawn_attacks<WHITE>(s) & piece_bb[BLACK_PAWN]) |
 		(attacks<KNIGHT>(s, occ) & piece_bb[BLACK_KNIGHT]) |
 		(attacks<BISHOP>(s, occ) & (piece_bb[BLACK_BISHOP] | piece_bb[BLACK_QUEEN])) |
-		(attacks<ROOK>(s, occ) & (piece_bb[BLACK_ROOK] | piece_bb[BLACK_QUEEN]));
+		(attacks<ROOK>(s, occ) & (piece_bb[BLACK_ROOK] | piece_bb[BLACK_QUEEN])) |
+		(attacks<KING>(s, occ) & (piece_bb[BLACK_KING]));
 }
 
 // Returns a bitboard containing a specific piece of a given color attacking a particular square
@@ -289,8 +302,10 @@ template<PieceType type, Color C> inline Bitboard Position::attacks_by() const {
 		}
 	}
 	else if constexpr (type == PieceType::QUEEN) {
-		sq = pop_lsb(&pieces);
-		a = attacks<ROOK>(sq, occ) | attacks<BISHOP>(sq, occ);
+		while (pieces) {
+			sq = pop_lsb(&pieces);
+			a |= attacks<ROOK>(sq, occ) | attacks<BISHOP>(sq, occ);
+		}
 	}
 	else {
 		while (pieces) {
@@ -548,7 +563,7 @@ void Position::play(const Move m) {
 	if (history[game_ply].epsq != NO_SQUARE) 
 		hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
 
-	hash ^= zobrist::castling_rights[castling()];
+	hash ^= zobrist::castling_rights[history[game_ply].castling];
 
 	side_to_play = ~side_to_play;
 	++game_ply;
@@ -647,7 +662,7 @@ void Position::play(const Move m) {
 
 	// hash the black_to_move
 	hash ^= zobrist::side_to_move[BLACK];
-	hash ^= zobrist::castling_rights[castling()];
+	hash ^= zobrist::castling_rights[history[game_ply].castling];
 }
 
 //Undos a move in the current position, rolling it back to the previous position
@@ -1756,19 +1771,22 @@ Move* Position::generate_legals_for(Square sq, Move* list)
 template <Color C>
 bool Position::see(Move m, int threshold) {
 	Square from = m.from();
-	Square to = m.to();
-	Piece captured = at(to);
+	Square to   = m.to();
+	PieceType captured = type_of(at(to));
+	PieceType capturing = type_of(at(from));
 	int value = 0; 
 
-	// For moves like promotion-captures, and en passant, we automatically assume that they are worth searching (value >= 0)
-	if (m.flags() != MoveFlags::CAPTURE) {
+	// For moves like promotions, and en passant, we automatically assume that they are worth searching (value >= 0)
+	if (!m.is_capture())
 		return 0 >= threshold;
-	}
+
+	if (m.is_promotion()) 
+		capturing = m.promotion();
 	
-	value = piece_value[type_of(captured)] - threshold;
+	value = piece_value[captured] - threshold;
 	if (value < 0) return false;
 
-	value = piece_value[type_of(board[from])] - value;
+	value = piece_value[capturing] - value;
 	if (value <= 0) return true;
 
 	Bitboard occ = (all_pieces<WHITE>() | all_pieces<BLACK>()) ^ bitboard_at(from) ^ bitboard_at(to);
@@ -1785,9 +1803,8 @@ bool Position::see(Move m, int threshold) {
 		att &= occ;
 
 		// If current player does not have any more attackers available
-		if (!(current_attackers = att & (to_play == WHITE ? all_pieces<WHITE>() : all_pieces<BLACK>()))) {
+		if (!(current_attackers = att & (to_play == WHITE ? all_pieces<WHITE>() : all_pieces<BLACK>())))
 			break;
-		}
 
 		res ^= 1;
 
@@ -1797,7 +1814,8 @@ bool Position::see(Move m, int threshold) {
 			// in the pinned board, in order to prioritize speed we just assume that, if there are any pinners, ALL pinned pieces must not be evaluated
 			current_attackers &= ~pinned(to_play);
 
-			if (!current_attackers) break;
+			if (!current_attackers) 
+				break;
 		}
 
 		if ((bb = current_attackers & piece_bb[make_piece(to_play, PAWN)])) {
