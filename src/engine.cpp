@@ -204,6 +204,14 @@ namespace Engine {
 			m_should_close = true;
 		}
 
+		else if (tokens[0] == "bench") {
+			int depth = 15;
+			if (tokens.size() > 1)
+				depth = std::stoi(tokens[1]);
+
+			m_worker.bench(depth);
+		}
+
 		else if (tokens[0] == "go") {
 			// Interrupt any previous search
 			m_worker.stop();

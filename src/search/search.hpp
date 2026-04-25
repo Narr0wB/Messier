@@ -84,7 +84,7 @@ namespace Search {
             void idle_loop();
             void kill();
 
-            void iterative_deepening();
+            void iterative_deepening(bool silent);
 
             template <Color C, bool PVnode>
             int quiescence(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
@@ -109,6 +109,7 @@ namespace Search {
 
             WorkerState get_state();
             void run(Position& pos, const SearchConfig& cfg);
+            void bench(int depth);
             void clear();
             void stop();
     };

@@ -12,6 +12,15 @@
 namespace Search {
     int LMReductions[MAX_DEPTH][64];
 
+    const std::vector<std::string> BenchFENs = {
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", // Startpos
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", // Kiwipete
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", // Endgame
+        "4rrk1/pp1n3p/3q2pQ/2p1pb2/2PP4/2P3N1/P2B2PP/4RRK1 b - - 5 20", // Middlegame tactics
+        "rq3rk1/ppp2ppp/1b3B2/4p3/1P1n4/P1NP1bP1/2P1NP1P/R2Q1RK1 b - - 0 14",
+        "r1bq1r1k/1pp1n1pp/1p1p4/4p2Q/4Pp2/1BNP4/PPP2PPP/3R1RK1 w - - 2 14"
+    };
+
     void Worker::idle_loop() {
         while (true) {
             std::unique_lock<std::mutex> lock(m_mutex);
@@ -23,7 +32,7 @@ namespace Search {
             m_stop = false;
             switch (m_state) {
                 case WorkerState::SEARCHING: {
-                    iterative_deepening(); 
+                    iterative_deepening(false); 
                     break;
                 }
                 case WorkerState::DEAD: {
@@ -73,6 +82,42 @@ namespace Search {
 
     WorkerState Worker::get_state() {
         return m_state;
+    }
+
+    void Worker::bench(int depth) {
+        uint64_t total_nodes = 0;
+        uint64_t start_time = time_ms();
+
+        m_tt.clear();
+
+        std::cout << "Running benchmark... " << std::endl;
+
+        for (const std::string& fen : BenchFENs) {
+            Position::set(fen, m_root);
+
+            m_info = { 0 };
+
+            m_cfg.max_depth = depth;
+            m_cfg.timeset = false;
+            m_cfg.nodeset = false;
+
+            iterative_deepening(false);
+
+            total_nodes += m_info.nodes;
+        }
+
+        uint64_t end_time = time_ms();
+        uint64_t elapsed = end_time - start_time;
+
+        if (elapsed == 0) 
+            elapsed = 1;
+
+        uint64_t nps = (total_nodes * 1000) / elapsed;
+
+        std::cout << "\n===========================\n";
+        std::cout << "Total time (ms) : " << elapsed << "\n";
+        std::cout << "Nodes searched  : " << total_nodes << "\n";
+        std::cout << "Nodes/second    : " << nps << "\n";
     }
 
     void compute_lmr_reductions() {
@@ -422,7 +467,7 @@ namespace Search {
 
 
 
-    void Worker::iterative_deepening() 
+    void Worker::iterative_deepening(bool silent = false) 
     {
         int max_depth = m_cfg.max_depth;
         int current_depth = 1;
@@ -498,23 +543,26 @@ namespace Search {
 
             int pv_len = extract_pv();
 
-            std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_info.tt_hits << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " AWit " << m_info.aw_iterations << " pvlen " << pv_len << " pv ";
-            for (int j = 0; j < pv_len; j++) {
-                std::cout << m_pv[j] << " ";
+            if (!silent) {
+                std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_info.tt_hits << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " AWit " << m_info.aw_iterations << " pvlen " << pv_len << " pv ";
+                for (int j = 0; j < pv_len; j++) {
+                    std::cout << m_pv[j] << " ";
+                }
+                std::cout << std::endl;
             }
-            std::cout << std::endl;
 
             best_move = m_pv[0];
         }
 
         auto end_time = time_ms();
 
-        LOG_INFO("searchtime {}ms", (end_time - start_time));
+        if (!silent) {
+            LOG_INFO("searchtime {}ms", (end_time - start_time));
 
-        // Print the best move found
-        std::cout << "bestmove ";
-        std::cout << best_move;
-        std::cout << std::endl;
+            std::cout << "bestmove ";
+            std::cout << best_move;
+            std::cout << std::endl;
+        }
     }
     
     int Worker::extract_pv() {

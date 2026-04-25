@@ -88,6 +88,7 @@ std::string Position::fen() const {
 //Updates a position according to an FEN string
 // TODO: Add support for reading the enps square, and the move counter
 void Position::set(const std::string& fen, Position& p) {
+	p.reset();
 	auto tokens = tokenize(fen, ' ');
 
 	int square = a8;
@@ -104,6 +105,7 @@ void Position::set(const std::string& fen, Position& p) {
 	p.hash ^= zobrist::side_to_move[p.side_to_play];
 
 	p.history[p.game_ply].entry = ALL_CASTLING_MASK;
+	p.history[p.game_ply].castling = 0;
 	for (char c : tokens[2]) {
 		switch (c) {
 			case 'K':
