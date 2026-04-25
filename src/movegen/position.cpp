@@ -1,5 +1,6 @@
 #include "movegen/position.hpp" 
 #include "movegen/tables.hpp" 
+#include "misc.hpp"
 #include <sstream>
 
 //Zobrist keys for each piece and each square
@@ -76,8 +77,10 @@ std::string Position::fen() const {
 		<< (history[game_ply].entry & WHITE_OOO_MASK ? "" : "Q")
 		<< (history[game_ply].entry & BLACK_OO_MASK ? "" : "k")
 		<< (history[game_ply].entry & BLACK_OOO_MASK ? "" : "q")
-		<< (history[game_ply].entry & ALL_CASTLING_MASK ? "" : "")
-		<< " " << (history[game_ply].epsq == NO_SQUARE ? "-" : SQSTR[history[game_ply].epsq]);
+		<< (history[game_ply].castling ? " " : "- ")
+		<< (history[game_ply].epsq == NO_SQUARE ? "-" : SQSTR[history[game_ply].epsq])
+		<< " " << halfmove
+		<< " " << fullmove;
 
 	return fen.str();
 }
@@ -85,8 +88,10 @@ std::string Position::fen() const {
 //Updates a position according to an FEN string
 // TODO: Add support for reading the enps square, and the move counter
 void Position::set(const std::string& fen, Position& p) {
+	auto tokens = tokenize(fen, ' ');
+
 	int square = a8;
-	for (char ch : fen.substr(0, fen.find(' '))) {
+	for (char ch : tokens[0]) {
 		if (isdigit(ch))
 			square += (ch - '0') * EAST;
 		else if (ch == '/')
@@ -95,34 +100,35 @@ void Position::set(const std::string& fen, Position& p) {
 			p.put_piece(Piece(PIECE_STR.find(ch)), Square(square++));
 	}
 
-	std::istringstream ss(fen.substr(fen.find(' ')));
-	unsigned char token;
-
-	ss >> token;
-	p.side_to_play = token == 'w' ? WHITE : BLACK;
+	p.side_to_play = tokens[1] == "w" ? WHITE : BLACK;
 	p.hash ^= zobrist::side_to_move[p.side_to_play];
 
 	p.history[p.game_ply].entry = ALL_CASTLING_MASK;
-	while (ss >> token && !isspace(token)) {
-		switch (token) {
-		case 'K':
-			p.history[p.game_ply].entry &= ~WHITE_OO_MASK;
-			p.history[p.game_ply].castling |= (1 << 3);
-			break;
-		case 'Q':
-			p.history[p.game_ply].entry &= ~WHITE_OOO_MASK;
-			p.history[p.game_ply].castling |= (1 << 2);
-			break;
-		case 'k':
-			p.history[p.game_ply].entry &= ~BLACK_OO_MASK;
-			p.history[p.game_ply].castling |= (1 << 1);
-			break;
-		case 'q':
-			p.history[p.game_ply].entry &= ~BLACK_OOO_MASK;
-			p.history[p.game_ply].castling |= (1 << 0);
-			break;
+	for (char c : tokens[2]) {
+		switch (c) {
+			case 'K':
+				p.history[p.game_ply].entry &= ~WHITE_OO_MASK;
+				p.history[p.game_ply].castling |= (1 << 3);
+				break;
+			case 'Q':
+				p.history[p.game_ply].entry &= ~WHITE_OOO_MASK;
+				p.history[p.game_ply].castling |= (1 << 2);
+				break;
+			case 'k':
+				p.history[p.game_ply].entry &= ~BLACK_OO_MASK;
+				p.history[p.game_ply].castling |= (1 << 1);
+				break;
+			case 'q':
+				p.history[p.game_ply].entry &= ~BLACK_OOO_MASK;
+				p.history[p.game_ply].castling |= (1 << 0);
+				break;
 		}
 	}
+
+	for (auto t : tokens)
+		LOG_INFO("{}", t);
+	p.halfmove = std::stoi(tokens[4]);
+	p.fullmove = std::stoi(tokens[5]);
 
 	p.hash ^= zobrist::castling_rights[p.castling()];
 }

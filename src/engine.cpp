@@ -276,5 +276,17 @@ namespace Engine {
 
 			m_worker.run(m_board, cfg);
 		}
+
+		// DEBUG COMMANDS
+		else if (tokens[0] == "probe") {
+			Position p;	
+			Position::set(command.substr(command.find(' ') + 1), p);
+
+			LOG_INFO("This is the hash {} {} {}", p.get_hash(), m_board.get_hash(), m_board.fen());
+			auto [hit, entry] = m_table.probe(p.get_hash());
+
+			if (true)
+				LOG_INFO("Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", entry.score, entry.eval, entry.move, entry.flags, entry.depth);
+		}
 	}
 } // namespace Engine

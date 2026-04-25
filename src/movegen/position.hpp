@@ -127,9 +127,12 @@ public:
 	//generate_moves() is called
 	// Bitboard pinned;
 	
+	uint32_t halfmove;
+
+	uint32_t fullmove;
 	
 	Position() : piece_bb{ 0 }, side_to_play(WHITE), game_ply(0), board{}, 
-		hash(0), white_material(0), black_material(0) {
+		hash(0), white_material(0), black_material(0), halfmove(0), fullmove(0) {
 		//Sets all squares on the board as empty
 		for (int i = 0; i < 64; i++) board[i] = NO_PIECE;
 		history[0] = UndoInfo();
@@ -560,6 +563,9 @@ template<Color C>
 void Position::play(const Move m) {
     history[game_ply].hash = hash;
 
+	if constexpr (C == BLACK)
+		fullmove++;
+
 	if (history[game_ply].epsq != NO_SQUARE) 
 		hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
 
@@ -659,6 +665,11 @@ void Position::play(const Move m) {
 		
 		break;
 	}
+
+	if (m.is_capture() || type_of(at(m.from())) == PAWN)
+		halfmove = 0;
+	else
+		halfmove++;
 
 	// hash the black_to_move
 	hash ^= zobrist::side_to_move[BLACK];
