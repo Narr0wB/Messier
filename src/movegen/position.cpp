@@ -125,8 +125,6 @@ void Position::set(const std::string& fen, Position& p) {
 		}
 	}
 
-	for (auto t : tokens)
-		LOG_INFO("{}", t);
 	p.halfmove = std::stoi(tokens[4]);
 	p.fullmove = std::stoi(tokens[5]);
 

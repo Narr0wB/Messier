@@ -173,13 +173,12 @@ namespace Search {
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
+                node.move  = m;
 
                 if (score >= MATE_SCORE - MAX_PLY)
                     node.score = score + ss->ply;
                 else if (score <= -MATE_SCORE + MAX_PLY)
                     node.score = score - ss->ply;
-
-                node.move  = m;
 
                 if (score > Aalpha) {
                     Aalpha = best_score;
@@ -378,13 +377,12 @@ namespace Search {
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
+                node.move  = m;
 
                 if (score >= MATE_SCORE - MAX_PLY)
                     node.score = score + ss->ply;
                 else if (score <= -MATE_SCORE + MAX_PLY)
                     node.score = score - ss->ply;
-
-                node.move  = m;
 
                 // We have found a move that is better than the current alpha
                 if (best_score > Aalpha) {

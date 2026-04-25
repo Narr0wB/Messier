@@ -149,6 +149,7 @@ namespace Engine {
 			std::cout << "id name " << "Messier v1.0" << std::endl;
 			std::cout << "id author Ilias \"narr0w\" El Fourati" << std::endl;
 			std::cout << "option name Hash type spin default 16 min 1 max 2048" << std::endl;
+			std::cout << "option name Threads type spin default 1 min 1 max 1" << std::endl;
 			std::cout << "uciok" << std::endl;
 		}
 
