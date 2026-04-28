@@ -144,12 +144,13 @@ namespace Search {
         }
         
         uint64_t hash = pos.get_hash();
+
         auto [tt_hit, tte] = m_tt.probe(hash);
-        int tt_eval      = tte.eval;
-        Move tt_move     = tte.move;
-        int tt_score     = tte.score;
-        uint8_t tt_bound = tte.flags;
-        int8_t tt_depth  = tte.depth;
+        int tt_eval        = tte.eval;
+        Move tt_move       = tte.move;
+        int tt_score       = tte.score;
+        uint8_t tt_bound   = tte.flags;
+        int8_t tt_depth    = tte.depth;
 
         if (tt_hit && tt_score >= MATE_SCORE - MAX_PLY) 
             tt_score -= ss->ply; 
@@ -158,10 +159,11 @@ namespace Search {
 
         // If we are not in a pv node, and we got a useful score from the TT, return early
         // NOTE: we do not check if the tte depth is greater (or equal) than the current depth because in quiescence any depth IS greater or equal than 0 
-        if (tt_hit 
-            && ( (tt_bound == FLAG_ALPHA && tt_score <= Aalpha)
-            ||   (tt_bound == FLAG_BETA  && tt_score >= Bbeta)
-            ||   (tt_bound == FLAG_EXACT))) 
+        if (!PVnode &&
+            tt_hit && 
+            ((tt_bound == FLAG_ALPHA && tt_score <= Aalpha) ||   
+            (tt_bound == FLAG_BETA  && tt_score >= Bbeta) ||   
+            (tt_bound == FLAG_EXACT))) 
         {
             m_info.tt_hits++;
             return tt_score;
@@ -173,7 +175,7 @@ namespace Search {
         ss->in_check = pos.in_check<C>();
         Move m = Move::none();
 
-        Transposition node(FLAG_ALPHA, pos.get_hash(), 0, NO_SCORE, NO_SCORE, Move::none());
+        Transposition node(FLAG_ALPHA, hash, 0, NO_SCORE, NO_SCORE, Move::none(), m_info.generation);
 
         if (!ss->in_check) {
             // Stand pat, check if current position is already better than Beta (or atleast better than alfa)
@@ -186,7 +188,7 @@ namespace Search {
 
             if (best_score >= Bbeta) {
                 node.flags = FLAG_BETA;
-                m_tt.push(pos.get_hash(), node);
+                m_tt.push(hash, node);
                 return best_score;
             }
             if (best_score > Aalpha) {
@@ -198,15 +200,22 @@ namespace Search {
             ss->static_eval = node.eval = NO_SCORE;
         }
         
-        if (ss->ply >= MAX_PLY - 1) return best_score != -INFTY ? best_score : corrected_eval<C>(pos);
+        if (ss->ply >= MAX_PLY - 1) 
+            return best_score != -INFTY ? best_score : corrected_eval<C>(pos);
 
         MovePicker<C> picker(pos, m_ctx, ss->ply, -1, tt_move);
         while ((m = picker.next()) != Move::none()) {
+            // if (!pos.is_legal<C>(m))
+            //     continue;
+
             move_count++;
 
             if (!ss->in_check) {
-                if (!m.is_capture() && !m.is_promotion()) continue;
-                if (!pos.see<C>(m, 0)) continue;
+                if (!m.is_capture() && !m.is_promotion()) 
+                    continue;
+
+                if (!pos.see<C>(m, 0)) 
+                    continue;
             }  
 
             pos.play<C>(m);
@@ -214,6 +223,13 @@ namespace Search {
             score = -quiescence<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha);
 
             pos.undo<C>(m);
+            
+            if ((m_stop) ||
+                (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
+                (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit))) 
+            {
+                return 0;
+            }
 
             if (score > best_score) {
                 best_score = score;
@@ -244,7 +260,7 @@ namespace Search {
             node.flags = FLAG_EXACT;
         }
 
-        m_tt.push(pos.get_hash(), node);
+        m_tt.push(hash, node);
         return best_score;
     }
 
@@ -273,7 +289,7 @@ namespace Search {
 
         assert(-INFTY <= Aalpha && Aalpha < Bbeta && Bbeta <= INFTY);
         assert(0 < depth && depth < MAX_DEPTH + 1);
-        // assert(PVnode || (Aalpha == Bbeta - 1));
+        assert(PVnode || (Aalpha == Bbeta - 1));
 
         // If out of time or hit any other constraints then exit the search
         if ((m_stop) ||
@@ -285,15 +301,23 @@ namespace Search {
 
 
         if (ply != 0) {
-            for (int i = pos.ply() - 2; i >= 0; i -= 2) {
+            int limit = pos.ply() - pos.halfmove;
+            if (limit < 0) limit = 0;
+
+            for (int i = pos.ply() - 2; i >= limit; i -= 2) {
                 /*
                     If we find, in our linear board history, the current position, then we have proof that there exists a path (a sequence of moves)
                     that connects this position to itself. If we were to rexplore this position, we would explore the circular path, which would lead
                     us to this position again, triggering a three-fold repetition. We then assign the value 0 to this position (it's a draw)
                 */
 
-                if (hash == pos.history[i].hash) return 0;
+
+                if (hash == pos.history[i].hash) {
+                    return 0;
+                }
             }
+
+            if (pos.halfmove == 50) return 0;
 
             // Mate distance pruning 
             // int alpha = std::max(mated_in(ply), Aalpha);
@@ -358,7 +382,7 @@ namespace Search {
             && !ss->in_check 
             && depth >= 3 
             && ss->static_eval >= Bbeta
-            && pos.npm(C) > 1) 
+            && pos.npm(C) > 0) 
         {
             int NMPReduction = 3 + (depth / 6);
 
@@ -368,15 +392,21 @@ namespace Search {
 
             if (v >= Bbeta) {
                 score = v >= MATE_SCORE - MAX_PLY ? Bbeta : v;
-                m_tt.push(hash, {FLAG_BETA, hash, (int8_t)depth, score, static_eval, Move::none()});
+                // m_tt.push(hash, {FLAG_BETA, hash, (int8_t)depth, score, static_eval, Move::none(), pos.fen()});
                 return score;
             }
         }
 
-        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, static_eval, Move::none());
+        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, static_eval, Move::none(), m_info.generation);
 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
         while ((m = picker.next()) != Move::none()) {
+            // if (!pos.is_legal<C>(m))
+            //     continue;
+
+            if (depth <= 3 && !pos.see<C>(m, -50 * depth)) 
+                continue;
+
             move_count++;
 
             pos.play<C>(m);
@@ -388,16 +418,15 @@ namespace Search {
             else {
                 // Late Move Reductions
                 if (depth >= 3 
-                    && move_count > 3
+                    && move_count >= 3
                     && m.is_quiet() 
                     && (!ss->in_check && !pos.in_check<~C>()))
                 {
                     int reduced = std::max(0, depth - 1 - LMReductions[std::min(depth, MAX_DEPTH - 1)][std::min(move_count, 63)]);
                     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced);
 
-                    if (score > Aalpha) {
+                    if (score > Aalpha) 
                         score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
-                    }
                 }
                 else {
                     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
@@ -472,7 +501,8 @@ namespace Search {
         int max_depth = m_cfg.max_depth;
         int current_depth = 1;
         int last_score = NO_SCORE;
-
+        uint64_t total_nodes = 0;
+        uint64_t total_qnodes = 0;
         Color to_play = m_root.turn();
         Move best_move = Move::none();
 
@@ -485,7 +515,8 @@ namespace Search {
             int alpha      = last_score != NO_SCORE ? last_score - aw_margin : -INFTY;
             int beta       = last_score != NO_SCORE ? last_score + aw_margin : INFTY;
             int score      = 0;
-            m_info = { 0 };
+            m_info = {0};
+            m_info.generation = m_root.ply();
 
             // Wipe search stack
             for (int i = 0; i < MAX_PLY; ++i) {
@@ -518,9 +549,13 @@ namespace Search {
 
                 if (score <= alpha) {
                     alpha = std::max<int64_t>(-INFTY, alpha - aw_margin);
+                    // alpha = -INFTY;
+                    // beta  = INFTY;
                 }
                 else if (score >= beta) {
                     beta = std::min<int64_t>(INFTY, beta + aw_margin);
+                    // alpha = -INFTY;
+                    // beta  = INFTY;
                 }
                 else {
                     break;
@@ -538,13 +573,26 @@ namespace Search {
 
             auto end_current_search = time_ms();
 
-            uint64_t elapsed = end_current_search - start_current_search;
-            uint32_t nps = elapsed > 0 ? (m_info.nodes * 1000) / elapsed : 0;   
+            total_nodes += m_info.nodes;
+            total_qnodes += m_info.qnodes;
+            uint64_t elapsed = end_current_search - start_time;
+            uint64_t nps = elapsed > 0 ? (total_nodes * 1000ULL) / elapsed : 0;   
 
             int pv_len = extract_pv();
 
             if (!silent) {
-                std::cout << "info depth " << current_depth << " score cp " << score * (to_play == WHITE ? 1 : -1) << " nodes " << m_info.nodes << " nps " << nps << " tthits " << m_info.tt_hits << " qnodes " << m_info.qnodes << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) << " AWit " << m_info.aw_iterations << " pvlen " << pv_len << " pv ";
+                std::cout 
+                    << "info depth " << current_depth 
+                    << " score cp " << score * (to_play == WHITE ? 1 : -1) 
+                    << " nodes " << total_nodes 
+                    << " qnodes " << total_qnodes 
+                    << " nps " << nps 
+                    << " tthits " << m_info.tt_hits 
+                    << " ttstored " << m_tt.stored() 
+                    << " BF " << std::pow(m_info.nodes, 1.0f / current_depth) 
+                    << " AWit " << m_info.aw_iterations 
+                    << " pvlen " << pv_len 
+                    << " pv ";
                 for (int j = 0; j < pv_len; j++) {
                     std::cout << m_pv[j] << " ";
                 }
@@ -578,8 +626,10 @@ namespace Search {
 
             auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
 
-            // TODO: Fix || !m_root.is_pseudo_legal(tte.move)
-            if (!tt_hit || tte.move == Move::none() || !pos.is_pseudo_legal(tte.move)) break;
+            if (!tt_hit || tte.move == Move::none() || !pos.is_pseudo_legal(tte.move)) {
+                // LOG_INFO("Broken PV: {}, {}, {}, {}", tt_hit, tte.move, pos.is_pseudo_legal(tte.move), pos.fen());
+                break;
+            }
 
             m_pv[count++] = tte.move;
             pos.play_dynamic(tte.move, to_play);

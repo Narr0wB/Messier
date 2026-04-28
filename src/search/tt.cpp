@@ -18,8 +18,17 @@ void TTable::clear()
 void TTable::push(uint64_t hash, const Transposition& t)
 {
     Transposition& e = m_map[mul_hi64(hash, m_map.size())];
-    if (e.hash == hash || t.depth >= e.depth) 
+    if (e.flags == FLAG_EMPTY) {
+        m_stored++;
         e = t;
+    }
+    else if (e.hash == hash || 
+        t.generation != e.generation || 
+        t.depth >= e.depth ||
+        (t.flags == FLAG_EXACT && e.flags != FLAG_EXACT)) 
+    {
+        e = t;
+    }
 }
 
 std::tuple<bool, Transposition> TTable::probe(uint64_t hash) 

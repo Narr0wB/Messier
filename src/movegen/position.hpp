@@ -26,6 +26,7 @@ copies or substantial portions of the Software.
 #include "log.hpp"
 
 #define LEONID_POSITION "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - -"
+#define HISTORY_LEN 1024
 
 //A psuedorandom number generator
 //Source: Stockfish
@@ -59,14 +60,14 @@ namespace zobrist {
 }
 
 constexpr uint8_t CASTLING_MASKS[64] = {
-    13, 15, 15, 15, 12, 15, 15, 14, // Rank 1: a1(13), e1(12), h1(14)
+    11, 15, 15, 15,  3, 15, 15,  7, // Rank 1: a1(13), e1(12), h1(14)
     15, 15, 15, 15, 15, 15, 15, 15, // Rank 2
     15, 15, 15, 15, 15, 15, 15, 15, // Rank 3
     15, 15, 15, 15, 15, 15, 15, 15, // Rank 4
     15, 15, 15, 15, 15, 15, 15, 15, // Rank 5
     15, 15, 15, 15, 15, 15, 15, 15, // Rank 6
     15, 15, 15, 15, 15, 15, 15, 15, // Rank 7
-     7, 15, 15, 15,  3, 15, 15, 11  // Rank 8: a8(7),  e8(3),  h8(11)
+    14, 15, 15, 15, 12, 15, 15, 13  // Rank 8: a8(7),  e8(3),  h8(11)
 };
 
 //Stores position information which cannot be recovered on undo-ing a move
@@ -86,12 +87,13 @@ struct UndoInfo {
     uint64_t hash;
 
 	uint8_t castling;
+	uint32_t halfmove;
 
-	constexpr UndoInfo() : entry(0), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), castling(0) {}
+	constexpr UndoInfo() : entry(0), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), castling(0), halfmove(0) {}
 	
 	//This preserves the entry bitboard across moves
 	UndoInfo(const UndoInfo& prev) : 
-		entry(prev.entry), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), castling(prev.castling) {}
+		entry(prev.entry), captured(NO_PIECE), epsq(NO_SQUARE), hash(0), castling(prev.castling), halfmove(0) {}
 };
 
 class Position {
@@ -117,7 +119,7 @@ private:
 
 public:
 	//The history of non-recoverable information
-	UndoInfo history[1024];
+	UndoInfo history[HISTORY_LEN];
 	
 	//The bitboard of enemy pieces that are currently attacking the king, updated whenever generate_moves()
 	//is called
@@ -215,12 +217,14 @@ public:
 	template<GenType type, Color Us>
 	Move *generate(Move* list) const;
 
-	bool is_pseudo_legal(Move m);
+	bool is_pseudo_legal(const Move& m);
+
+	template <Color C>
+	bool is_legal(const Move& m);
 
 	inline Bitboard pinned(Color C) const;
 	inline Bitboard pinners(Color C) const;
 
-	template<Color C> int see_to(Square to);
 	template<Color C> bool see(Move m, int threshold);
 };
 
@@ -402,7 +406,8 @@ bool Position::checkmate() const {
 	b1 = attacks<KING>(our_king, all) & ~(us_bb | danger);
 
 	// If the king can move, then it is not checkmate
-	if (b1) { /*std::cout << "FAILED KING MOVES";*/ return 0; }
+	if (b1) 
+		return false;
 
 	Square s;
 
@@ -562,11 +567,13 @@ bool Position::stalemate() const
 template<Color C>
 void Position::play(const Move m) {
     history[game_ply].hash = hash;
+	history[game_ply].halfmove = halfmove;
 
 	if constexpr (C == BLACK)
 		fullmove++;
 
-	if (history[game_ply].epsq != NO_SQUARE) 
+	// Check if an en-passant opportunity was created the round before. If so, then check if we did indeed hash the en-passant file
+	if (history[game_ply].epsq != NO_SQUARE && (attacks_by<PAWN, C>() & bitboard_at(history[game_ply].epsq))) 
 		hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
 
 	hash ^= zobrist::castling_rights[history[game_ply].castling];
@@ -591,7 +598,11 @@ void Position::play(const Move m) {
 			
 		//This is the square behind the pawn that was double-pushed
 		history[game_ply].epsq = m.from() + relative_dir<C>(NORTH);
-		hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
+
+		// Dynamic enpassant hashing
+		if (attacks_by<PAWN, ~C>() & bitboard_at(history[game_ply].epsq))
+			hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
+
 		break;
 	case OO:
 		if (C == WHITE) {
@@ -667,8 +678,8 @@ void Position::play(const Move m) {
 	}
 
 	if (m.is_capture() || type_of(at(m.from())) == PAWN)
-		halfmove = 0;
-	else
+		halfmove = 0;	
+	else 
 		halfmove++;
 
 	// hash the black_to_move
@@ -680,6 +691,7 @@ void Position::play(const Move m) {
 template<Color C>
 void Position::undo(const Move m) {
 	MoveFlags type = m.flags();
+
 	switch (type) {
 	case QUIET:
 		move_piece_quiet(m.to(), m.from());
@@ -733,24 +745,36 @@ void Position::undo(const Move m) {
 	side_to_play = ~side_to_play;
 	--game_ply;
 
+	if (m.is_capture() || type_of(at(m.from())) == PAWN)
+		halfmove = history[game_ply].halfmove;
+	else
+		halfmove--;
+
+	if constexpr (C == BLACK)
+		fullmove--;
+
 	hash = history[game_ply].hash;
 }
 
 inline void Position::play_null_move() {
-	side_to_play = ~side_to_play;
+	history[game_ply].hash = hash;
 	hash ^= zobrist::side_to_move[BLACK];
 
+	Bitboard pawn_attacks = side_to_play == WHITE ? attacks_by<PAWN, WHITE>() : attacks_by<PAWN, BLACK>();
+
+	if (history[game_ply].epsq != NO_SQUARE && (pawn_attacks & bitboard_at(history[game_ply].epsq))) 
+		hash ^= zobrist::enps_file[file_of(history[game_ply].epsq)];
+
 	++game_ply;
+	side_to_play = ~side_to_play;
 
 	history[game_ply] = UndoInfo(history[game_ply - 1]);
-	history[game_ply].epsq = NO_SQUARE;
 }
 
 inline void Position::undo_null_move() {
 	side_to_play = ~side_to_play;
-	hash ^= zobrist::side_to_move[BLACK];
-	 
 	--game_ply;
+	hash = history[game_ply].hash;
 }
 
 //Generates all legal moves in a position for the given side. Advances the move pointer and returns it.
@@ -1873,8 +1897,8 @@ bool Position::see(Move m, int threshold) {
 inline int Position::npm() const {
 	return pop_count(piece_bb[WHITE_KNIGHT]) + pop_count(piece_bb[BLACK_KNIGHT]) +
 		   pop_count(piece_bb[WHITE_BISHOP]) + pop_count(piece_bb[BLACK_BISHOP]) +
-		   pop_count(piece_bb[WHITE_ROOK]) * 2 + pop_count(piece_bb[BLACK_ROOK]) * 2 +
-		   pop_count(piece_bb[WHITE_QUEEN]) * 4 + pop_count(piece_bb[BLACK_QUEEN]) * 4;
+		   (pop_count(piece_bb[WHITE_ROOK])  + pop_count(piece_bb[BLACK_ROOK])) * 2 +
+		   (pop_count(piece_bb[WHITE_QUEEN]) + pop_count(piece_bb[BLACK_QUEEN])) * 4;
 }
 
 inline int Position::npm(Color C) const {
@@ -1893,4 +1917,38 @@ inline int Position::npm(Color C) const {
 	}	
 
 	return 0;
+}
+
+// TODO: Check for castling legality
+template <Color Us>
+bool Position::is_legal(const Move& m)
+{
+	Square our_king  = bsf(bitboard_of(Us, KING));
+	Bitboard from_bb = bitboard_at(m.from());
+	Bitboard to_bb   = bitboard_at(m.to());
+	Bitboard all = all_pieces<WHITE>() | all_pieces<BLACK>();
+
+	if (type_of(at(m.from())) == KING && attackers<~Us>(m.to(), all ^ from_bb)) {
+		return false;
+	}
+	else if (pinned(Us) & from_bb)
+	{
+		Bitboard occ = all ^ from_bb | to_bb;
+		if (attackers<~Us>(our_king, occ) & ~to_bb)
+			return false;
+	}
+	else if (m.flags() == MoveFlags::EN_PASSANT) {
+		assert(history[game_ply].epsq != NO_SQUARE);
+
+		Direction up = relative_dir<~Us>(Direction::NORTH);
+		Bitboard removed = bitboard_at(m.from()) | bitboard_at(history[game_ply].epsq + up);
+		Bitboard added = bitboard_at(m.to());
+
+		Bitboard occ = all ^ (removed | added);
+
+		if (attackers<~Us>(our_king, occ))
+			return false;
+	}
+	
+	return true;
 }

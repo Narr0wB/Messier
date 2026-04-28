@@ -78,9 +78,9 @@ std::string Position::fen() const {
 		<< (history[game_ply].entry & BLACK_OO_MASK ? "" : "k")
 		<< (history[game_ply].entry & BLACK_OOO_MASK ? "" : "q")
 		<< (history[game_ply].castling ? " " : "- ")
-		<< (history[game_ply].epsq == NO_SQUARE ? "-" : SQSTR[history[game_ply].epsq])
-		<< " " << halfmove
-		<< " " << fullmove;
+		<< (history[game_ply].epsq == NO_SQUARE ? "-" : SQSTR[history[game_ply].epsq]);
+		// << " " << halfmove
+		// << " " << fullmove;
 
 	return fen.str();
 }
@@ -163,8 +163,12 @@ void Position::reset()
 	game_ply = 0;
 	hash = 0;
 	side_to_play = WHITE;
+
 	white_material = 0;
 	black_material = 0;
+
+	halfmove = 0;
+	fullmove = 0;
 
 	for (int i = 0; i < NPIECES; ++i) {
 		piece_bb[i] = 0;
@@ -174,33 +178,38 @@ void Position::reset()
 		board[i] = NO_PIECE;
 	}
 
-	for (int i = 0; i < 256; ++i) {
+	for (int i = 0; i < HISTORY_LEN; ++i) {
 		history[i] = UndoInfo();
 	}
 }
 
-bool Position::is_pseudo_legal(Move m) 
+bool Position::is_pseudo_legal(const Move& m) 
 {
+	if (m == Move::none())
+		return false;
+
 	Color to_play = side_to_play;
 
-	Bitboard us = to_play == WHITE ? all_pieces<WHITE>() : all_pieces<BLACK>();
-	Square from = m.from();
-	Square to   = m.to();
-	MoveFlags f = m.flags();
-	Piece  p1   = at(from);
-	Piece  p2   = at(to);
-
-	if (p1 == NO_PIECE || color_of(p1) != to_play) return false;
-	if (m.is_capture() && f != MoveFlags::EN_PASSANT && (p2 == NO_PIECE || bitboard_at(to) & us)) return false;
-	if (m.is_quiet()   && (p2 != NO_PIECE)) return false;
-
+	Bitboard us  = to_play == WHITE ? all_pieces<WHITE>() : all_pieces<BLACK>();
 	Bitboard occ = all_pieces<WHITE>() | all_pieces<BLACK>();
+	MoveFlags f  = m.flags();
+	Square from  = m.from();
+	Square to    = m.to();
+	Piece  p1    = at(from);
+	Piece  p2    = at(to);
+
+	if (p1 == NO_PIECE || color_of(p1) != to_play) 
+		return false;
+	if (m.is_capture() && f != MoveFlags::EN_PASSANT && (p2 == NO_PIECE || bitboard_at(to) & us)) 
+		return false;
+	if (m.is_quiet()   && (p2 != NO_PIECE)) 
+		return false;
 
 	switch (type_of(p1)) {
 		case PAWN: {
-			Direction up = Direction(to_play == WHITE ? NORTH : -NORTH);
+			Direction up = to_play == WHITE ? relative_dir<WHITE>(NORTH) : relative_dir<BLACK>(NORTH);
 
-			if ((!m.is_capture() && m.flags() != MoveFlags::DOUBLE_PUSH) && to != from + up) 
+			if (f == MoveFlags::QUIET && to != from + up) 
                 return false;
 			if (f == MoveFlags::DOUBLE_PUSH && (to != from + up + up || rank_of(from) != (to_play == WHITE ? Rank::RANK2 : Rank::RANK7) || at(from + up) != NO_PIECE)) 
                 return false;
@@ -211,7 +220,7 @@ bool Position::is_pseudo_legal(Move m)
             if (m.is_promotion() && (rank_of(to) != Rank::RANK8 && rank_of(to) != Rank::RANK1))
 				return false;
 
-			return true;
+			break;
 		}
 		case KNIGHT: {
 			return attacks<KNIGHT>(from, occ) & bitboard_at(to);
@@ -230,8 +239,11 @@ bool Position::is_pseudo_legal(Move m)
 				bool valid = (history[game_ply].castling & (to_play == WHITE ? 1 << 3 : 1 << 1)) && 
 					   !(to_play == WHITE ? in_check<WHITE>() : in_check<BLACK>()) && 
 					   !(occ & (to_play == WHITE ? oo_blockers_mask<WHITE>() : oo_blockers_mask<BLACK>()));
-                
-                return valid && (from == (to_play == WHITE ? Square::e1 : Square::e8)) && (to == (to_play == WHITE ? Square::g1 : Square::g8));
+
+				Square correct_from = to_play == WHITE ? Square::e1 : Square::e8;
+				Square correct_to   = to_play == WHITE ? Square::g1 : Square::g8;
+
+                return valid && (from == correct_from) && (to == correct_to);
 			}
 
 			if (f == MoveFlags::OOO) {
@@ -239,7 +251,10 @@ bool Position::is_pseudo_legal(Move m)
 					   !(to_play == WHITE ? in_check<WHITE>() : in_check<BLACK>()) &&
 					   !(occ & (to_play == WHITE ? ooo_blockers_mask<WHITE>() : ooo_blockers_mask<BLACK>()));
 
-                return valid && (from == (to_play == WHITE ? Square::e1 : Square::e8)) && (to == (to_play == WHITE ? Square::c1 : Square::c8));
+				Square correct_from = to_play == WHITE ? Square::e1 : Square::e8;
+				Square correct_to   = to_play == WHITE ? Square::c1 : Square::c8;
+
+                return valid && (from == correct_from) && (to == correct_to);
 			}
 
 			return attacks<KING>(from, occ) & bitboard_at(to);
@@ -248,5 +263,3 @@ bool Position::is_pseudo_legal(Move m)
 
 	return true;
 }
-
-

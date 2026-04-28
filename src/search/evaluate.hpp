@@ -10,9 +10,9 @@
 
 #define MAX_MOVE_SCORE 20000
 
-int evaluate(Position& position);
+int evaluate(const Position& position);
 
 template <Color Us>
-int corrected_eval(Position& position) { return evaluate(position) * (Us == WHITE ? 1 : -1); };
+int corrected_eval(const Position& position) { return evaluate(position) * (Us == WHITE ? 1 : -1); };
 
 #endif // EVALUATE_H

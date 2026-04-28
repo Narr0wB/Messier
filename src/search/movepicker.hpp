@@ -19,7 +19,7 @@ static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
     /* KING   */ {100, 200,   220,   230, 800,  900},
 };
 
-#define GOOD_CAPTURE_THRESHOLD 100 
+#define GOOD_CAPTURE_THRESHOLD 0 
 #define GOOD_QUIET_THRESHOLD   -1 
 
 enum Stage : int {
@@ -27,6 +27,7 @@ enum Stage : int {
     CAPTURE_INIT,
     GOOD_CAPTURES,
     QUIET_INIT,
+
     GOOD_QUIETS,
     BAD_CAPTURES,
     BAD_QUIETS,
@@ -100,7 +101,9 @@ class MovePicker {
                 case QUIESCENCE_TT:
                 case EVASION_TT:
                     ++m_stage;
-                    if (m_ttmove != Move::none() && m_pos.is_pseudo_legal(m_ttmove)) { return m_ttmove; }
+                    if (m_pos.is_pseudo_legal(m_ttmove) && m_pos.is_legal<C>(m_ttmove)) {
+                        return m_ttmove;
+                    }
                     goto top;
                 
                 case QUIESCENCE_INIT:

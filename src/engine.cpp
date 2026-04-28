@@ -294,8 +294,8 @@ namespace Engine {
 			LOG_INFO("This is the hash {} {} {}", p.get_hash(), m_board.get_hash(), m_board.fen());
 			auto [hit, entry] = m_table.probe(p.get_hash());
 
-			if (true)
-				LOG_INFO("Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", entry.score, entry.eval, entry.move, entry.flags, entry.depth);
+			// if (true)
+			// 	LOG_INFO("Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", entry.score, entry.eval, entry.move, entry.flags, entry.depth);
 		}
 	}
 } // namespace Engine

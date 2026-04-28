@@ -12,28 +12,29 @@
 #define FLAG_ALPHA 2
 #define FLAG_BETA 3
 
-#define MATE_SCORE UINT16_MAX 
-#define INFTY (MATE_SCORE * 2) 
+#define MATE_SCORE (INT16_MAX / 2)
+#define INFTY (MATE_SCORE + 10) 
 #define NO_SCORE (INFTY + 1)
 #define NO_EVAL 0 
 
 struct Transposition {
     uint64_t hash;
-    int32_t score;
-    int32_t eval;
+    int16_t score;
+    int16_t eval;
     Move move;
-    uint8_t flags;
     int8_t depth;
+    uint8_t flags : 2;
+    uint8_t generation : 6;
 
     Transposition() = default;
 
-    Transposition(uint8_t f, uint64_t h, int8_t d, int sc, int e, Move m) : 
-    flags(f), hash(h), depth(d), score(sc), move(m), eval(e) {};
+    Transposition(uint8_t f, uint64_t h, int8_t d, int sc, int e, Move m, uint8_t gen) : 
+    flags(f), hash(h), depth(d), score(sc), move(m), eval(e), generation(gen) {};
 };
 
-#define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_SCORE, NO_EVAL, Move::none() }
+#define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_SCORE, NO_EVAL, Move::none(), 0 }
 #define DEFAULT_CAPACITY (1 << 25)
-#define MAX_CAPACITY (1 << 26)
+#define MAX_CAPACITY (1 << 27)
 
 class TTable {
     private:

@@ -14,12 +14,9 @@
 #include <thread>
 #include <atomic>
 
-#define MAX_DEPTH 20
+#define MAX_DEPTH 25
 #define MAX_PLY   30 
 #define MAX_TABLE MAX_DEPTH + 1
-
-#define MATE_SCORE UINT16_MAX 
-#define INFTY (MATE_SCORE * 2) 
 
 namespace Search {
     struct SearchConfig {
@@ -40,6 +37,7 @@ namespace Search {
         uint64_t reduced_nodes;
         uint64_t aw_iterations;
         uint64_t tt_hits;
+        uint64_t generation;
     };
 
     struct SearchStack {

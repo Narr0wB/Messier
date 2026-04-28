@@ -223,8 +223,8 @@ public:
 			return BISHOP;
 		else if ((flags() & 0b0111) == MoveFlags::PR_KNIGHT)
 			return KNIGHT;
-		else
-			return PAWN;
+			
+		return PAWN;
 	}
 
 	inline bool operator==(Move a) const { return move == a.move; }
