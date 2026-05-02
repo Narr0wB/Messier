@@ -99,12 +99,13 @@ class MovePicker {
             switch (m_stage) {
                 case MAIN_TT:
                 case QUIESCENCE_TT:
-                case EVASION_TT:
+                case EVASION_TT: {
                     ++m_stage;
                     if (m_pos.is_pseudo_legal(m_ttmove) && m_pos.is_legal<C>(m_ttmove)) {
                         return m_ttmove;
                     }
                     goto top;
+                }
                 
                 case CAPTURE_INIT: {
                     MoveList<GenType::CAPTURES, C> list(m_pos);
@@ -116,7 +117,6 @@ class MovePicker {
                     ++m_stage;
                     goto top;
                 }
-
 
                 case QUIESCENCE_INIT: {
                     MoveList<GenType::QUIESCENCE, C> list(m_pos);
@@ -271,17 +271,24 @@ class MovePicker {
                     m.score += m_ctx.killer_moves[m_ply][0] == m ? (1 << 16) : 0;
                     m.score += m_ctx.killer_moves[m_ply][1] == m ? (1 << 16) - 1 : 0;
 
-                    if (m.flags() == MoveFlags::PR_QUEEN) {
+                    if (m.flags() == MoveFlags::PR_QUEEN)
                         m.score += (1 << 23);
-                    }
                     
                     // Assign a bonus for escaping a threat by a lesser piece
                     int v = (threat_by_lesser[pt] & (1ULL << to)) ? -30 : 40 * bool((threat_by_lesser[pt] & (1ULL << from)));
                     m.score += piece_value[pt] * v;
                 }
-                else {
-                    // GenType::EVASIONS
-
+                else if constexpr (type == GenType::QUIESCENCE) {
+                    if (m.is_capture()) {
+                        PieceType captured_type = captured == NO_PIECE ? PAWN : type_of(captured);
+                        m.score = mvv_lva_lookup[type_of(pc)][captured_type];
+                    }
+                    else {
+                        if (m.flags() == MoveFlags::PR_QUEEN)
+                            m.score += (1 << 23);
+                    }
+                }
+                else if constexpr (type == GenType::EVASIONS) {
                     if (m.is_capture()) m.score = (1 << 20) - piece_value[pt];
                     else m.score = m_ctx.history_moves[static_cast<size_t>(C)][from][to];
                 }

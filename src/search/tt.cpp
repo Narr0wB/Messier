@@ -24,7 +24,7 @@ void TTable::push(uint64_t hash, const Transposition& t)
     }
     else if (e.hash == hash || 
         t.generation != e.generation || 
-        t.depth >= e.depth ||
+        t.depth >= (e.depth - 2)  ||
         (t.flags == FLAG_EXACT && e.flags != FLAG_EXACT)) 
     {
         e = t;

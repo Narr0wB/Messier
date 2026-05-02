@@ -1,13 +1,14 @@
 
 #include <atomic>
 #include <algorithm>
-#include <unordered_set>
 
 #include "search/search.hpp" 
 #include "search/evaluate.hpp"
 #include "search/movepicker.hpp"
 #include "misc.hpp"
 #include "log.hpp"
+
+#define DELTA_MARGIN 100
 
 namespace Search {
     int LMReductions[MAX_DEPTH][64];
@@ -121,9 +122,9 @@ namespace Search {
     }
 
     void compute_lmr_reductions() {
-        for (int depth = 1; depth < MAX_DEPTH + 1; ++depth) {
-            for (int move_count = 1; move_count < 64 + 1; ++move_count) {
-                LMReductions[depth][move_count] = int(std::log(depth) * std::log(move_count));
+        for (int depth = 0; depth < MAX_DEPTH; ++depth) {
+            for (int move_count = 0; move_count < 64; ++move_count) {
+                LMReductions[depth][move_count] = int(std::log(depth + 1) * std::log(move_count + 1));
             }
         }
     }
@@ -195,6 +196,15 @@ namespace Search {
                 node.flags = FLAG_ALPHA;
                 Aalpha = best_score;
             }
+
+            // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a knight, is still under alpha then 
+            // prune this node by returning the static evaluation  
+            if (!PVnode && ss->static_eval + piece_value[KNIGHT] < Aalpha) {
+                node.flags = FLAG_ALPHA;
+                node.score = ss->static_eval + piece_value[KNIGHT];
+                m_tt.push(pos.get_hash(), node);
+                return ss->static_eval + piece_value[KNIGHT];   
+            }
         }
         else {
             ss->static_eval = node.eval = NO_SCORE;
@@ -203,23 +213,32 @@ namespace Search {
         if (ss->ply >= MAX_PLY - 1) 
             return best_score != -INFTY ? best_score : corrected_eval<C>(pos);
 
+
         MovePicker<C> picker(pos, m_ctx, ss->ply, -1, tt_move);
         while ((m = picker.next()) != Move::none()) {
-            // if (!pos.is_legal<C>(m))
-            //     continue;
-
             move_count++;
 
             if (!ss->in_check) {
                 if (!m.is_capture() && !m.is_promotion()) 
                     continue;
 
-                if (!pos.see<C>(m, 0)) 
+                else if (!m.is_promotion() && ss->static_eval + piece_value[m.flags() == MoveFlags::EN_PASSANT ? PAWN : type_of(pos.at(m.to()))] + DELTA_MARGIN <= Aalpha)
+                    continue;
+
+                else if (m.is_promotion() && (m.promotion() != QUEEN))
+                    continue;
+
+                else if (!pos.see<C>(m, 0)) 
                     continue;
             }  
+            else {
+                if ((ss->ply - ss->qply) > 2 && m.is_quiet())
+                    continue;
+            }
 
             pos.play<C>(m);
 
+            (ss + 1)->qply = ss->qply;
             score = -quiescence<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha);
 
             pos.undo<C>(m);
@@ -253,7 +272,7 @@ namespace Search {
             }
         }
 
-        if (best_score == -INFTY) {
+        if (move_count == 0) {
             // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
             best_score = ss->in_check ? -MATE_SCORE + ss->ply : 0;
             node.score = ss->in_check ? -MATE_SCORE : 0;
@@ -275,7 +294,6 @@ namespace Search {
         int ply = ss->ply;
         int move_count = 0;
         int score = 0;
-        int static_eval = 0;
         int best_score = -INFTY;
         ss->in_check = pos.in_check<C>();
         uint64_t hash = pos.get_hash();
@@ -283,8 +301,8 @@ namespace Search {
 
         // If depth is below zero, dip into quiescence search
         if (depth <= 0) {
-            score = quiescence<C, PVnode>(pos, ss, Aalpha, Bbeta);
-            return score;
+            ss->qply = ply;
+            return quiescence<C, PVnode>(pos, ss, Aalpha, Bbeta);
         }
 
         assert(-INFTY <= Aalpha && Aalpha < Bbeta && Bbeta <= INFTY);
@@ -355,28 +373,37 @@ namespace Search {
             }
         }
 
+        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, ss->static_eval, Move::none(), m_info.generation);
+
         if (ss->in_check) {
-            static_eval = ss->static_eval = NO_SCORE;
+            ss->static_eval = NO_SCORE;
         }
         else {
-            static_eval = ss->static_eval = (tt_hit && tt_eval != NO_SCORE) ? 
+            ss->static_eval = (tt_hit && tt_eval != NO_SCORE) ? 
                 tt_eval : 
                 corrected_eval<C>(pos); 
+
+
+            // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a rook, is still under alpha then 
+            // prune this node by returning the static evaluation  
+            if (!PVnode 
+                && depth == 1 
+                && ss->static_eval + piece_value[ROOK] < Aalpha)
+            {
+                node.flags = FLAG_ALPHA;
+                node.score = ss->static_eval + piece_value[ROOK];
+                m_tt.push(pos.get_hash(), node);
+                return ss->static_eval + piece_value[ROOK];   
+            }
+
+            if (!PVnode 
+                && depth <= 3 
+                && ss->static_eval - (depth * 75) >= Bbeta) // Margin scales with depth (e.g. 75cp per ply)
+            {
+                return ss->static_eval;
+            }
         }
 
-        // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a rook, is still under alpha then 
-        // prune this node by returning the static evaluation  
-        if (!PVnode && depth == 1 && !ss->in_check && static_eval + piece_value[ROOK] < Aalpha) {
-            return static_eval + piece_value[ROOK];   
-        }
-
-        if (!PVnode 
-            && !ss->in_check 
-            && depth <= 3 
-            && static_eval - (depth * 75) >= Bbeta) // Margin scales with depth (e.g. 75cp per ply)
-        {
-            return static_eval;
-        }
 
         // Null Move Pruning
         if (!PVnode 
@@ -398,17 +425,15 @@ namespace Search {
             }
         }
 
-        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, static_eval, Move::none(), m_info.generation);
-
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
         while ((m = picker.next()) != Move::none()) {
             // if (!pos.is_legal<C>(m))
             //     continue;
 
-            // if (depth <= 3 && !pos.see<C>(m, -50 * depth)) 
-            //     continue;
-
             move_count++;
+
+            if (move_count > 2 && !ss->in_check && depth <= 3 && !pos.see<C>(m, -50 * depth)) 
+                continue;
 
             pos.play<C>(m);
 
@@ -424,6 +449,10 @@ namespace Search {
                     && (!ss->in_check && !pos.in_check<~C>()))
                 {
                     int reduced = std::max(0, depth - 1 - LMReductions[std::min(depth, MAX_DEPTH - 1)][std::min(move_count, 63)]);
+                    if (PVnode) reduced += 1;
+                    if (ss->in_check) reduced -= 1;
+                    reduced = std::clamp(reduced, 0, depth - 2);
+
                     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced);
 
                     if (score > Aalpha) 
@@ -438,9 +467,6 @@ namespace Search {
             }
 
             pos.undo<C>(m);
-
-            // if (depth == m_cfg.max_depth)
-            //     LOG_INFO("{}, {}", m, score);
 
             if ((m_stop) ||
                 (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
@@ -483,7 +509,7 @@ namespace Search {
             }
         }
 
-        if (best_score == -INFTY) {
+        if (move_count == 0) {
             // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
             best_score = ss->in_check ? -MATE_SCORE + ss->ply : 0;
             node.score = ss->in_check ? -MATE_SCORE : 0;
@@ -522,6 +548,7 @@ namespace Search {
             // Wipe search stack
             for (int i = 0; i < MAX_PLY; ++i) {
                 (m_ss + i)->ply         = i;
+                (m_ss + i)->qply        = 0;
                 (m_ss + i)->static_eval = 0;
                 (m_ss + i)->move_count  = 0;
                 (m_ss + i)->tt_hit      = false;
@@ -546,20 +573,24 @@ namespace Search {
                     break;
                 }
 
-                aw_margin += aw_margin / 2;
+                aw_margin *= 2;
 
                 if (score <= alpha) {
                     alpha = std::max<int64_t>(-INFTY, alpha - aw_margin);
+                    if (m_info.aw_iterations == 3)
+                        alpha = -INFTY;
                     // alpha = -INFTY;
                     // beta  = INFTY;
                 }
                 else if (score >= beta) {
                     beta = std::min<int64_t>(INFTY, beta + aw_margin);
+                    if (m_info.aw_iterations == 3)
+                        beta = INFTY;
                     // alpha = -INFTY;
                     // beta  = INFTY;
                 }
                 else {
-                    break;
+                    break; 
                 }
             }
 
@@ -619,15 +650,11 @@ namespace Search {
         Position pos = m_root;
         Color to_play = pos.turn();
 
-        std::vector<uint64_t> visited(MAX_PLY, 0);
+        uint64_t visited[MAX_PLY];
         while (count < MAX_PLY) {
             // Cycle prevention
-            for (auto& h : visited) {
-                if (pos.get_hash() == h)
-                    return count;
-                else
-                    visited[count] = pos.get_hash();
-            }
+            // for (int i = 0; i < count; ++i) if (visited[i] == pos.get_hash()) return count;
+            // visited[count] = pos.get_hash();
 
             auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
 

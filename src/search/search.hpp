@@ -42,6 +42,7 @@ namespace Search {
 
     struct SearchStack {
         int  ply;
+        int  qply;
         int  static_eval;
         int  move_count;
         bool in_check;
