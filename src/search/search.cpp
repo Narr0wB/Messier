@@ -303,6 +303,7 @@ namespace Search {
         if (ply != 0) {
             int limit = pos.ply() - pos.halfmove;
             if (limit < 0) limit = 0;
+            int counter = 0;
 
             for (int i = pos.ply() - 2; i >= limit; i -= 2) {
                 /*
@@ -312,7 +313,7 @@ namespace Search {
                 */
 
 
-                if (hash == pos.history[i].hash) {
+                if (hash == pos.history[i].hash && ++counter == 2) {
                     return 0;
                 }
             }
