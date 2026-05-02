@@ -585,6 +585,11 @@ void Position::play(const Move m) {
 	history[game_ply].castling &= (CASTLING_MASKS[m.from()] & CASTLING_MASKS[m.to()]);
 	history[game_ply].entry |= SQUARE_BB[m.to()] | SQUARE_BB[m.from()];
 
+	if (m.is_capture() || type_of(at(m.from())) == PAWN)
+		halfmove = 0;	
+	else 
+		halfmove++;
+
 	MoveFlags type = m.flags();
 
 	switch (type) {
@@ -676,11 +681,6 @@ void Position::play(const Move m) {
 		
 		break;
 	}
-
-	if (m.is_capture() || type_of(at(m.from())) == PAWN)
-		halfmove = 0;	
-	else 
-		halfmove++;
 
 	// hash the black_to_move
 	hash ^= zobrist::side_to_move[BLACK];
@@ -1105,9 +1105,8 @@ Move* Position::generate_legals(Move* list) const
 template <GenType type, Color Us>
 Move* Position::generate(Move* list) const
 {
-	if constexpr (type == GenType::LEGAL) {
+	if constexpr (type == GenType::LEGAL)
 		return generate_legals<Us>(list);
-	}
 
 	constexpr Color Them = ~Us;
 
@@ -1153,7 +1152,7 @@ Move* Position::generate(Move* list) const
 	if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS) {
 		list = make<QUIET>(our_king, b1 & ~them_bb, list);
 	}
-	if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) {
+	if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS || type == GenType::QUIESCENCE) {
 		list = make<CAPTURE>(our_king, b1 & them_bb, list);
 	}
 
@@ -1207,7 +1206,7 @@ Move* Position::generate(Move* list) const
 
 			switch (board[checker_square]) {
 				case make_piece(Them, PAWN):
-					if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) {
+					if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS || type == GenType::QUIESCENCE) {
 						//If the checker is a pawn, we must check for e.p. moves that can capture it
 						//This evaluates to true if the checking piece is the one which just double pushed
 						if (checkers == shift<relative_dir<Us>(SOUTH)>(SQUARE_BB[history[game_ply].epsq])) {
@@ -1219,7 +1218,7 @@ Move* Position::generate(Move* list) const
 
 					//FALL THROUGH INTENTIONAL
 				case make_piece(Them, KNIGHT):
-					if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) {
+					if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS || type == GenType::QUIESCENCE) {
 						//If the checker is either a pawn or a knight, the only legal moves are to capture
 						//the checker. Only non-pinned pieces can capture it
 						b1 = attackers<Us>(checker_square, all) & not_pinned;
@@ -1247,7 +1246,7 @@ Move* Position::generate(Move* list) const
 		quiet_mask = ~all;
 
 		if (history[game_ply].epsq != NO_SQUARE) {
-			if constexpr (type == GenType::CAPTURES) {
+			if constexpr (type == GenType::CAPTURES || type == GenType::QUIESCENCE) {
 				//b1 contains our pawns that can perform an e.p. capture
 				b2 = pawn_attacks<Them>(history[game_ply].epsq) & bitboard_of(Us, PAWN);
 				b1 = b2 & not_pinned;
@@ -1304,7 +1303,7 @@ Move* Position::generate(Move* list) const
 			//are constrained to move in this direction only
 			b2 = attacks(type_of(board[s]), s, all) & LINE[our_king][s];
 			if constexpr (type == GenType::QUIETS) list = make<QUIET>(s, b2 & quiet_mask, list);
-			if constexpr (type == GenType::CAPTURES) list = make<CAPTURE>(s, b2 & capture_mask, list);
+			if constexpr (type == GenType::CAPTURES || type == GenType::QUIESCENCE) list = make<CAPTURE>(s, b2 & capture_mask, list);
 		}
 
 		//For each pinned pawn...
@@ -1313,7 +1312,7 @@ Move* Position::generate(Move* list) const
 			s = pop_lsb(&b1);
 
 			if (rank_of(s) == relative_rank<Us>(RANK7)) {
-				if constexpr (type == GenType::CAPTURES) {
+				if constexpr (type == GenType::CAPTURES || type == GenType::QUIESCENCE) {
 					//Quiet promotions are impossible since the square in front of the pawn will
 					//either be occupied by the king or the pinner, or doing so would leave our king
 					//in check
@@ -1322,7 +1321,7 @@ Move* Position::generate(Move* list) const
 				}
 			}
 			else {
-				if constexpr (type == GenType::CAPTURES) {
+				if constexpr (type == GenType::CAPTURES || type == GenType::QUIESCENCE) {
 					b2 = pawn_attacks<Us>(s) & them_bb & LINE[s][our_king];
 					list = make<CAPTURE>(s, b2, list);
 				}
@@ -1351,7 +1350,7 @@ Move* Position::generate(Move* list) const
 		b2 = attacks<KNIGHT>(s, all);
 		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS)
 			list = make<QUIET>(s, b2 & quiet_mask, list);
-		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS)
+		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS || type == GenType::QUIESCENCE)
 			list = make<CAPTURE>(s, b2 & capture_mask, list);
 	}
 
@@ -1362,7 +1361,7 @@ Move* Position::generate(Move* list) const
 		b2 = attacks<BISHOP>(s, all);
 		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS)
 			list = make<QUIET>(s, b2 & quiet_mask, list);
-		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS)
+		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS || type == GenType::QUIESCENCE)
 			list = make<CAPTURE>(s, b2 & capture_mask, list);
 	}
 
@@ -1373,7 +1372,7 @@ Move* Position::generate(Move* list) const
 		b2 = attacks<ROOK>(s, all);
 		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS)
 			list = make<QUIET>(s, b2 & quiet_mask, list);
-		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS)
+		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS || type == GenType::QUIESCENCE)
 			list = make<CAPTURE>(s, b2 & capture_mask, list);
 	}
 
@@ -1402,7 +1401,7 @@ Move* Position::generate(Move* list) const
 		}
 	}
 
-	if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) {
+	if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS || type == GenType::QUIESCENCE) {
 		//Pawn captures
 		b2 = shift<relative_dir<Us>(NORTH_WEST)>(b1) & capture_mask;
 		b3 = shift<relative_dir<Us>(NORTH_EAST)>(b1) & capture_mask;
@@ -1422,7 +1421,7 @@ Move* Position::generate(Move* list) const
 	b1 = bitboard_of(Us, PAWN) & not_pinned & MASK_RANK[relative_rank<Us>(RANK7)];
 
 	if (b1) {
-		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS) {
+		if constexpr (type == GenType::QUIETS || type == GenType::EVASIONS || type == GenType::QUIESCENCE) {
 			//Quiet promotions
 			b2 = shift<relative_dir<Us>(NORTH)>(b1) & quiet_mask;
 			while (b2) {
@@ -1435,7 +1434,7 @@ Move* Position::generate(Move* list) const
 			}
 		}
 
-		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS) {
+		if constexpr (type == GenType::CAPTURES || type == GenType::EVASIONS || type == GenType::QUIESCENCE) {
 			//Promotion captures
 			b2 = shift<relative_dir<Us>(NORTH_WEST)>(b1) & capture_mask;
 			b3 = shift<relative_dir<Us>(NORTH_EAST)>(b1) & capture_mask;

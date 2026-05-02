@@ -121,8 +121,8 @@ namespace Search {
     }
 
     void compute_lmr_reductions() {
-        for (int depth = 0; depth < MAX_DEPTH; ++depth) {
-            for (int move_count = 0; move_count < 64; ++move_count) {
+        for (int depth = 1; depth < MAX_DEPTH + 1; ++depth) {
+            for (int move_count = 1; move_count < 64 + 1; ++move_count) {
                 LMReductions[depth][move_count] = int(std::log(depth) * std::log(move_count));
             }
         }
@@ -192,7 +192,7 @@ namespace Search {
                 return best_score;
             }
             if (best_score > Aalpha) {
-                node.flags = FLAG_EXACT;
+                node.flags = FLAG_ALPHA;
                 Aalpha = best_score;
             }
         }
@@ -356,7 +356,7 @@ namespace Search {
         }
 
         if (ss->in_check) {
-            static_eval = ss->static_eval = 0;
+            static_eval = ss->static_eval = NO_SCORE;
         }
         else {
             static_eval = ss->static_eval = (tt_hit && tt_eval != NO_SCORE) ? 
@@ -364,7 +364,7 @@ namespace Search {
                 corrected_eval<C>(pos); 
         }
 
-        // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a queen, is still under alpha then 
+        // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a rook, is still under alpha then 
         // prune this node by returning the static evaluation  
         if (!PVnode && depth == 1 && !ss->in_check && static_eval + piece_value[ROOK] < Aalpha) {
             return static_eval + piece_value[ROOK];   
@@ -381,7 +381,7 @@ namespace Search {
         // Null Move Pruning
         if (!PVnode 
             && !ss->in_check 
-            && depth >= 3 
+            && depth >= 4 
             && ss->static_eval >= Bbeta
             && pos.npm(C) > 0) 
         {
@@ -405,8 +405,8 @@ namespace Search {
             // if (!pos.is_legal<C>(m))
             //     continue;
 
-            if (depth <= 3 && !pos.see<C>(m, -50 * depth)) 
-                continue;
+            // if (depth <= 3 && !pos.see<C>(m, -50 * depth)) 
+            //     continue;
 
             move_count++;
 
@@ -619,11 +619,15 @@ namespace Search {
         Position pos = m_root;
         Color to_play = pos.turn();
 
-        std::unordered_set<uint64_t> visited;
+        std::vector<uint64_t> visited(MAX_PLY, 0);
         while (count < MAX_PLY) {
             // Cycle prevention
-            if (visited.count(pos.get_hash())) break;
-            else visited.insert(pos.get_hash());
+            for (auto& h : visited) {
+                if (pos.get_hash() == h)
+                    return count;
+                else
+                    visited[count] = pos.get_hash();
+            }
 
             auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
 
@@ -636,11 +640,6 @@ namespace Search {
             pos.play_dynamic(tte.move, to_play);
             to_play = ~to_play;
         }
-
-        // for (int i = count - 1; 0 <= i; --i) {
-        //     to_play = ~to_play;
-        //     pos.undo_dynamic(m_pv[i], to_play);
-        // }
 
         return count;
     }

@@ -129,8 +129,7 @@ namespace Engine {
 						Move *match = std::find_if(move_list.begin(), move_list.end(), match_lambda);
 						if (match != move_list.end()) m_board.play<WHITE>(*match);
 					}
-
-					if (m_board.turn() == Color::BLACK) {
+					else if (m_board.turn() == Color::BLACK) {
 						MoveList<LEGAL, BLACK> move_list(m_board);
 						Move *match = std::find_if(move_list.begin(), move_list.end(), match_lambda);
 						if (match != move_list.end()) m_board.play<BLACK>(*match);

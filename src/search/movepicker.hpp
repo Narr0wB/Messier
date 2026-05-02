@@ -34,7 +34,7 @@ enum Stage : int {
 
     QUIESCENCE_TT,
     QUIESCENCE_INIT,
-    QUIESCENCE,
+    QUIESCENCE_YIELD,
 
     EVASION_TT,
     EVASION_INIT,
@@ -106,9 +106,20 @@ class MovePicker {
                     }
                     goto top;
                 
-                case QUIESCENCE_INIT:
                 case CAPTURE_INIT: {
                     MoveList<GenType::CAPTURES, C> list(m_pos);
+
+                    m_cur = m_end_bad_captures = m_moves;
+                    m_end_cur = m_end_captures = m_end_generated = score(list);
+
+                    std::sort(m_cur, m_end_cur, std::greater<ExtMove>());
+                    ++m_stage;
+                    goto top;
+                }
+
+
+                case QUIESCENCE_INIT: {
+                    MoveList<GenType::QUIESCENCE, C> list(m_pos);
 
                     m_cur = m_end_bad_captures = m_moves;
                     m_end_cur = m_end_captures = m_end_generated = score(list);
@@ -183,7 +194,7 @@ class MovePicker {
                     goto top;
                 }
 
-                case QUIESCENCE: {
+                case QUIESCENCE_YIELD: {
                     Move m = select([&]() { return true; });
                     return m;
                 }
@@ -226,7 +237,7 @@ class MovePicker {
         template <GenType type>
         ExtMove* score(MoveList<type, C>& list)
         {
-            static_assert(type == GenType::CAPTURES || type == GenType::QUIETS || type == GenType::EVASIONS, "Incorrect type");
+            static_assert(type == GenType::CAPTURES || type == GenType::QUIETS || type == GenType::EVASIONS || type == GenType::QUIESCENCE, "Incorrect type");
 
             Bitboard threat_by_lesser[NPIECE_TYPES] = {0}; 
             if constexpr (type == GenType::QUIETS) {

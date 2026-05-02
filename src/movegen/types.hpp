@@ -177,10 +177,11 @@ enum MoveFlags : int {
 };
 
 enum GenType : int {
-    QUIETS = 0b0000,
-    CAPTURES = 0b1111,
-	EVASIONS = 0b1010,
-	LEGAL = 0b1110
+    QUIETS,
+    CAPTURES,
+	EVASIONS,
+	LEGAL,
+    QUIESCENCE 
 };
 
 class Move {

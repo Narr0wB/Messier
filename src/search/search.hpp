@@ -75,7 +75,7 @@ namespace Search {
             SearchConfig m_cfg;
             SearchContext m_ctx;
             SearchInfo m_info;
-            SearchStack m_ss[MAX_PLY + 1];
+            SearchStack m_ss[MAX_PLY];
 
             std::vector<Move> m_pv;
 
