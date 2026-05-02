@@ -396,9 +396,11 @@ namespace Search {
                 return ss->static_eval + piece_value[ROOK];   
             }
 
+            int margin = (pos.npm() <= 6 ? 150 : 75) * depth;
             if (!PVnode 
                 && depth <= 3 
-                && ss->static_eval - (depth * 75) >= Bbeta) // Margin scales with depth (e.g. 75cp per ply)
+                && ss->static_eval - margin >= Bbeta
+                && pos.npm() > 6) // Margin scales with depth (e.g. 75cp per ply)
             {
                 return ss->static_eval;
             }
@@ -410,7 +412,7 @@ namespace Search {
             && !ss->in_check 
             && depth >= 4 
             && ss->static_eval >= Bbeta
-            && pos.npm(C) > 0) 
+            && pos.npm(C) >= 4) 
         {
             int NMPReduction = 3 + (depth / 6);
 
@@ -449,9 +451,9 @@ namespace Search {
                     && (!ss->in_check && !pos.in_check<~C>()))
                 {
                     int reduced = std::max(0, depth - 1 - LMReductions[std::min(depth, MAX_DEPTH - 1)][std::min(move_count, 63)]);
-                    if (PVnode) reduced += 1;
-                    if (ss->in_check) reduced -= 1;
-                    reduced = std::clamp(reduced, 0, depth - 2);
+                    if (PVnode) reduced -= 1;
+                    if (ss->in_check) reduced += 1;
+                    reduced = std::clamp(reduced, 0, depth - 1);
 
                     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced);
 
