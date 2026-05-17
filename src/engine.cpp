@@ -11,7 +11,7 @@ namespace Engine {
 		m_table(DEFAULT_CAPACITY),
         m_worker(m_table)
 	{ 
-		Search::compute_lmr_reductions();
+		Search::compute_lmx_parameters();
 
 		// Parse command line arguments
 		for (int i = 1; i < argc; ++i) {
@@ -293,8 +293,10 @@ namespace Engine {
 			LOG_INFO("This is the hash {} {} {}", p.get_hash(), m_board.get_hash(), m_board.fen());
 			auto [hit, entry] = m_table.probe(p.get_hash());
 
-			// if (true)
-			// 	LOG_INFO("Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", entry.score, entry.eval, entry.move, entry.flags, entry.depth);
+			auto depth = entry.depth;
+			auto flags = entry.flags;
+			if (true)
+				LOG_INFO("Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", entry.score, entry.eval, entry.move, flags, depth);
 		}
 	}
 } // namespace Engine

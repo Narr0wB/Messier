@@ -275,7 +275,8 @@ class MovePicker {
                         m.score += (1 << 23);
                     
                     // Assign a bonus for escaping a threat by a lesser piece
-                    int v = (threat_by_lesser[pt] & (1ULL << to)) ? -30 : 40 * bool((threat_by_lesser[pt] & (1ULL << from)));
+                    int v = (threat_by_lesser[pt] & (1ULL << to)) ? 
+                        -30 : 40 * bool((threat_by_lesser[pt] & (1ULL << from)));
                     m.score += piece_value[pt] * v;
                 }
                 else if constexpr (type == GenType::QUIESCENCE) {
@@ -289,8 +290,10 @@ class MovePicker {
                     }
                 }
                 else if constexpr (type == GenType::EVASIONS) {
-                    if (m.is_capture()) m.score = (1 << 20) - piece_value[pt];
-                    else m.score = m_ctx.history_moves[static_cast<size_t>(C)][from][to];
+                    if (m.is_capture() && pt != KING)
+                        m.score = (1 << 20) + mvv_lva_lookup[pt][type_of(captured)];
+                    else 
+                        m.score = m_ctx.history_moves[static_cast<size_t>(C)][from][to];
                 }
             }
 

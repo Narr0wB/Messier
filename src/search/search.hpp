@@ -17,6 +17,7 @@
 #define MAX_DEPTH 25
 #define MAX_PLY   30 
 #define MAX_TABLE MAX_DEPTH + 1
+#define MAX_HISTORY 8000
 
 namespace Search {
     struct SearchConfig {
@@ -89,9 +90,12 @@ namespace Search {
             int quiescence(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
 
             template <Color C, bool PVnode>
-            int search(Position& ctx, SearchStack *ss, int Aalpha, int Bbeta, int depth);
+            int search(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
 
             int extract_pv();
+
+            template <Color C>
+            void update_history(const Move& m, int bonus);
 
         public:
             Worker(TTable& table) : 
@@ -113,7 +117,7 @@ namespace Search {
             void stop();
     };
 
-    void compute_lmr_reductions();
+    void compute_lmx_parameters();
 
     inline int mate_in(int ply) { return MATE_SCORE - ply; };
     inline int mated_in(int ply) { return -MATE_SCORE + ply; };

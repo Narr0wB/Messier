@@ -5,13 +5,15 @@
 #include "search/search.hpp" 
 #include "search/evaluate.hpp"
 #include "search/movepicker.hpp"
+#include "search/parameters.hpp"
 #include "misc.hpp"
 #include "log.hpp"
 
 #define DELTA_MARGIN 100
 
 namespace Search {
-    int LMReductions[MAX_DEPTH][64];
+    int lmr_reductions[MAX_DEPTH][64];
+    int lmp_margin[2][MAX_DEPTH];
 
     const std::vector<std::string> BenchFENs = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", // Startpos
@@ -121,12 +123,24 @@ namespace Search {
         std::cout << "Nodes/second    : " << nps << "\n";
     }
 
-    void compute_lmr_reductions() {
-        for (int depth = 0; depth < MAX_DEPTH; ++depth) {
-            for (int move_count = 0; move_count < 64; ++move_count) {
-                LMReductions[depth][move_count] = int(std::log(depth + 1) * std::log(move_count + 1));
-            }
+    void compute_lmx_parameters() {
+        lmr_reductions[0][0] = 0;
+
+        for (int depth = 1; depth < MAX_DEPTH; ++depth) {
+            lmp_margin[0][depth] = 1.5 + 0.5 * std::pow(depth, 2.0);
+            lmp_margin[1][depth] = 3.0 + 1.0 * std::pow(depth, 2.0);
+
+            for (int move_count = 1; move_count < 64; ++move_count)
+                lmr_reductions[depth][move_count] = static_cast<int>(0.7844 + std::log(depth) * std::log(move_count) / 2.4696);
         }
+    }
+
+    template <Color C>
+    void Worker::update_history(const Move& m, int bonus)
+    {
+        int clamped_bonus = std::clamp(bonus, -MAX_HISTORY, MAX_HISTORY);
+        m_ctx.history_moves[C][m.from()][m.to()] 
+            += clamped_bonus - m_ctx.history_moves[C][m.from()][m.to()] * std::abs(clamped_bonus) / MAX_HISTORY;
     }
    
 
@@ -295,6 +309,7 @@ namespace Search {
         int move_count = 0;
         int score = 0;
         int best_score = -INFTY;
+        bool skip_quiets = false;
         ss->in_check = pos.in_check<C>();
         uint64_t hash = pos.get_hash();
         Move m = Move::none();
@@ -317,7 +332,6 @@ namespace Search {
             return 0;
         }
 
-
         if (ply != 0) {
             int limit = pos.ply() - pos.halfmove;
             if (limit < 0) limit = 0;
@@ -330,50 +344,42 @@ namespace Search {
                     us to this position again, triggering a three-fold repetition. We then assign the value 0 to this position (it's a draw)
                 */
 
-
                 if (hash == pos.history[i].hash && ++counter == 2) {
                     return 0;
                 }
             }
 
             if (pos.halfmove == 50) return 0;
-
-            // Mate distance pruning 
-            // int alpha = std::max(mated_in(ply), Aalpha);
-            // int beta  = std::min(mate_in(ply + 1), Bbeta);
-            // if (alpha >= beta)
-            //     return alpha;
         }
 
         auto [tt_hit, tte] = m_tt.probe(hash);
-        int tt_eval      = tte.eval;
-        Move tt_move     = tte.move;
-        int tt_score     = tte.score;
-        uint8_t tt_bound = tte.flags;
-        int8_t tt_depth  = tte.depth;
+        int tt_eval        = tte.eval;
+        Move tt_move       = tte.move;
+        int tt_score       = tte.score;
+        uint8_t tt_bound   = tte.flags;
+        int8_t tt_depth    = tte.depth;
 
         if (tt_hit && tt_score >= MATE_SCORE - MAX_PLY) 
             tt_score -= ss->ply; 
         else if (tt_hit && tt_score <= -MATE_SCORE + MAX_PLY)
             tt_score += ss->ply;
 
-        if (tt_hit && 
-            tt_depth >= depth &&
-            ply != 0)
+        if (tt_hit 
+            && tt_depth >= depth 
+            && ply != 0)
         {
             m_info.tt_hits++;
-            if (tt_bound == FLAG_ALPHA && tt_score <= Aalpha) {
-                return tt_score;
-            }
-            else if (tt_bound == FLAG_BETA && tt_score >= Bbeta) {
-                return tt_score;
-            }
-            else if (tt_bound == FLAG_EXACT) {
+            if (tt_bound == FLAG_ALPHA && tt_score <= Aalpha
+                || tt_bound == FLAG_BETA && tt_score >= Bbeta
+                || tt_bound == FLAG_EXACT) 
+            {
                 return tt_score;
             }
         }
 
         Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, ss->static_eval, Move::none(), m_info.generation);
+
+        const bool improving = ss->ply >= 2 && !ss->in_check && ss->static_eval > (ss - 2)->static_eval;
 
         if (ss->in_check) {
             ss->static_eval = NO_SCORE;
@@ -384,58 +390,74 @@ namespace Search {
                 corrected_eval<C>(pos); 
 
 
-            // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a rook, is still under alpha then 
-            // prune this node by returning the static evaluation  
+            // Futility pruning: if at frontier nodes we realize that the static evaluation of our position, 
+            // even after adding the value of a rook, is still under alpha then prune this node by returning the static evaluation  
             if (!PVnode 
-                && depth == 1 
-                && ss->static_eval + piece_value[ROOK] < Aalpha)
+                && depth <= fp_depth 
+                && ss->static_eval + fp_margin < Aalpha)
             {
-                node.flags = FLAG_ALPHA;
-                node.score = ss->static_eval + piece_value[ROOK];
-                m_tt.push(pos.get_hash(), node);
-                return ss->static_eval + piece_value[ROOK];   
+                return ss->static_eval + fp_margin;   
             }
 
-            int margin = (pos.npm() <= 6 ? 150 : 75) * depth;
+            // Reverse futility pruning
+            int margin = rfp_base_margin * std::max(0, depth - improving);
             if (!PVnode 
-                && depth <= 3 
-                && ss->static_eval - margin >= Bbeta
-                && pos.npm() > 6) // Margin scales with depth (e.g. 75cp per ply)
+                && depth <= rfp_depth 
+                && ss->static_eval - margin >= Bbeta)
             {
                 return ss->static_eval;
             }
-        }
 
+            // Null Move Pruning
+            if (!PVnode 
+                && depth >= nmp_depth 
+                && ss->static_eval >= Bbeta
+                && pos.npm(C) >= nmp_npawn_material
+                && (!tt_hit || tt_bound == FLAG_BETA || tt_score >= Bbeta)) 
+            {
+                int NMPReduction = 4 + depth / 5 + std::min(2, (ss->static_eval - Bbeta) / 191);
 
-        // Null Move Pruning
-        if (!PVnode 
-            && !ss->in_check 
-            && depth >= 4 
-            && ss->static_eval >= Bbeta
-            && pos.npm(C) >= 4) 
-        {
-            int NMPReduction = 3 + (depth / 6);
+                pos.play_null_move();
+                int v = -search<~C, false>(pos, ss + 1, -Bbeta, -Bbeta + 1, depth - NMPReduction);
+                pos.undo_null_move();
 
-            pos.play_null_move();
-            int v = -search<~C, false>(pos, ss + 1, -Bbeta, -Bbeta + 1, depth - 1 - NMPReduction);
-            pos.undo_null_move();
+                if (v >= Bbeta)
+                    return v >= MATE_SCORE - MAX_PLY ? Bbeta : v;
+            }
 
-            if (v >= Bbeta) {
-                score = v >= MATE_SCORE - MAX_PLY ? Bbeta : v;
-                // m_tt.push(hash, {FLAG_BETA, hash, (int8_t)depth, score, static_eval, Move::none(), pos.fen()});
-                return score;
+            // IIR by Ed Schroder
+            if (tt_hit 
+                && (tt_move == Move::none() || tt_depth + 4 < depth) 
+                && depth >= iir_depth 
+                && PVnode)
+            {
+                depth -= 1;
             }
         }
 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
         while ((m = picker.next()) != Move::none()) {
-            // if (!pos.is_legal<C>(m))
-            //     continue;
-
             move_count++;
 
-            if (move_count > 2 && !ss->in_check && depth <= 3 && !pos.see<C>(m, -50 * depth)) 
+            const bool is_quiet = m.is_quiet();
+
+            if (skip_quiets && is_quiet)
                 continue;
+
+            if (move_count > 2 
+                && !ss->in_check 
+                && depth <= 3 
+                && !pos.see<C>(m, -50 * depth)) 
+                continue;
+
+            // Late Move Pruning
+            if (depth <= 3 
+                && move_count > lmp_margin[improving][depth]
+                && ss->ply > 0)
+            {
+                skip_quiets = true;
+            }
+
 
             pos.play<C>(m);
 
@@ -445,19 +467,27 @@ namespace Search {
             }
             else {
                 // Late Move Reductions
-                if (depth >= 3 
-                    && move_count >= 3
-                    && m.is_quiet() 
-                    && (!ss->in_check && !pos.in_check<~C>()))
+                if (depth > 3 && move_count > 3)
                 {
-                    int reduced = std::max(0, depth - 1 - LMReductions[std::min(depth, MAX_DEPTH - 1)][std::min(move_count, 63)]);
-                    if (PVnode) reduced -= 1;
-                    if (ss->in_check) reduced += 1;
-                    reduced = std::clamp(reduced, 0, depth - 1);
+                    int reduction = 0;
 
-                    score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced);
+                    if (is_quiet) {
+                        reduction = lmr_reductions[depth][std::min(move_count, 63)];
 
-                    if (score > Aalpha) 
+                        reduction -= PVnode;
+                        reduction -= ss->in_check;
+                    }
+                    else {
+                        reduction = 3;
+
+                        reduction -= pos.in_check<~C>();
+                    }
+
+                    int reduced_depth = std::clamp(depth - reduction, 0, depth - 1);
+
+                    score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced_depth);
+
+                    if (score > Aalpha && reduction > 1) 
                         score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
                 }
                 else {
@@ -494,13 +524,12 @@ namespace Search {
 
                     // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
-                        if (m.is_quiet()) {
+                        if (is_quiet) {
                             m_ctx.killer_moves[ply][1] = m_ctx.killer_moves[ply][0];
                             m_ctx.killer_moves[ply][0] = m;
-                        }
 
-                        // Rank history moves
-                        if (m.is_quiet()) m_ctx.history_moves[static_cast<size_t>(C)][m.from()][m.to()] += depth;
+                            update_history<C>(m, 300 * depth - 250);
+                        }
 
                         node.flags = FLAG_BETA;
                         m_tt.push(hash, node);
@@ -541,8 +570,8 @@ namespace Search {
             int root_depth = m_cfg.max_depth = current_depth;
             int depth      = root_depth;
             int aw_margin  = 50;
-            int alpha      = last_score != NO_SCORE ? last_score - aw_margin : -INFTY;
-            int beta       = last_score != NO_SCORE ? last_score + aw_margin : INFTY;
+            int alpha      = last_score != NO_SCORE ? std::max(-INFTY, last_score - aw_margin) : -INFTY;
+            int beta       = last_score != NO_SCORE ? std::min(INFTY, last_score + aw_margin) : INFTY;
             int score      = 0;
             m_info = {0};
             m_info.generation = m_root.ply();
@@ -655,8 +684,8 @@ namespace Search {
         uint64_t visited[MAX_PLY];
         while (count < MAX_PLY) {
             // Cycle prevention
-            // for (int i = 0; i < count; ++i) if (visited[i] == pos.get_hash()) return count;
-            // visited[count] = pos.get_hash();
+            for (int i = 0; i < count; ++i) if (visited[i] == pos.get_hash()) return count;
+            visited[count] = pos.get_hash();
 
             auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
 
