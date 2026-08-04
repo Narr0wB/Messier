@@ -128,7 +128,7 @@ namespace Search {
 
         for (int depth = 1; depth < MAX_DEPTH; ++depth) {
             lmp_margin[0][depth] = 1.5 + 0.5 * std::pow(depth, 2.0);
-            lmp_margin[1][depth] = 3.0 + 1.0 * std::pow(depth, 2.0);
+            lmp_margin[1][depth] = 2.0 + 0.5 * std::pow(depth, 2.0);
 
             for (int move_count = 1; move_count < 64; ++move_count)
                 lmr_reductions[depth][move_count] = static_cast<int>(0.7844 + std::log(depth) * std::log(move_count) / 2.4696);
@@ -377,9 +377,11 @@ namespace Search {
             }
         }
 
-        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, ss->static_eval, Move::none(), m_info.generation);
+        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, ss->static_eval, tt_move, m_info.generation);
 
-        const bool improving = ss->ply >= 2 && !ss->in_check && ss->static_eval > (ss - 2)->static_eval;
+        const bool improving = ss->ply >= 2 && 
+                              !ss->in_check && 
+                              ss->static_eval > (ss - 2)->static_eval;
 
         if (ss->in_check) {
             ss->static_eval = NO_SCORE;
@@ -392,12 +394,12 @@ namespace Search {
 
             // Futility pruning: if at frontier nodes we realize that the static evaluation of our position, 
             // even after adding the value of a rook, is still under alpha then prune this node by returning the static evaluation  
-            if (!PVnode 
-                && depth <= fp_depth 
-                && ss->static_eval + fp_margin < Aalpha)
-            {
-                return ss->static_eval + fp_margin;   
-            }
+            // if (!PVnode 
+            //     && depth <= fp_depth 
+            //     && ss->static_eval + fp_margin < Aalpha)
+            // {
+            //     return ss->static_eval + fp_margin;   
+            // }
 
             // Reverse futility pruning
             int margin = rfp_base_margin * std::max(0, depth - improving);
@@ -437,12 +439,18 @@ namespace Search {
 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
         while ((m = picker.next()) != Move::none()) {
+            /* Explore a single branch of the main tree */
+            if (m_cfg.searchmove != Move::none() 
+                && ss->ply == 0 
+                && m != m_cfg.searchmove)
+                continue;
+
             move_count++;
 
             const bool is_quiet = m.is_quiet();
 
-            if (skip_quiets && is_quiet)
-                continue;
+            // if (skip_quiets && is_quiet)
+            //     continue;
 
             if (move_count > 2 
                 && !ss->in_check 
@@ -454,10 +462,7 @@ namespace Search {
             if (depth <= 3 
                 && move_count > lmp_margin[improving][depth]
                 && ss->ply > 0)
-            {
                 skip_quiets = true;
-            }
-
 
             pos.play<C>(m);
 
@@ -467,13 +472,14 @@ namespace Search {
             }
             else {
                 // Late Move Reductions
-                if (depth > 3 && move_count > 3)
+                if (depth >= 4 && move_count > 4 && is_quiet)
                 {
                     int reduction = 0;
 
                     if (is_quiet) {
                         reduction = lmr_reductions[depth][std::min(move_count, 63)];
 
+                        reduction -= pos.in_check<~C>();
                         reduction -= PVnode;
                         reduction -= ss->in_check;
                     }
@@ -481,9 +487,10 @@ namespace Search {
                         reduction = 3;
 
                         reduction -= pos.in_check<~C>();
+                        reduction -= PVnode;
                     }
 
-                    int reduced_depth = std::clamp(depth - reduction, 0, depth - 1);
+                    int reduced_depth = std::clamp(depth - reduction, 0, depth);
 
                     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced_depth);
 
@@ -510,7 +517,6 @@ namespace Search {
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
-                node.move  = m;
 
                 if (score >= MATE_SCORE - MAX_PLY)
                     node.score = score + ss->ply;
@@ -521,6 +527,10 @@ namespace Search {
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
                     node.flags = FLAG_EXACT;
+                    node.move  = m;
+
+                    if (is_quiet)
+                        update_history<C>(m, 300 * depth - 250);
 
                     // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
@@ -528,7 +538,6 @@ namespace Search {
                             m_ctx.killer_moves[ply][1] = m_ctx.killer_moves[ply][0];
                             m_ctx.killer_moves[ply][0] = m;
 
-                            update_history<C>(m, 300 * depth - 250);
                         }
 
                         node.flags = FLAG_BETA;

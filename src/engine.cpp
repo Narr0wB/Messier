@@ -260,6 +260,10 @@ namespace Engine {
 					cfg.nodeset = true;
 					cfg.nodeslimit = std::stoi(tokens.at(i + 1));
 				}
+
+				else if (tokens.at(i) == "searchmoves") {
+					cfg.searchmove = Move::from_string(tokens.at(i + 1));
+				}
 			}
 
 			if (depth == -1) {
@@ -290,13 +294,44 @@ namespace Engine {
 			Position p;	
 			Position::set(command.substr(command.find(' ') + 1), p);
 
-			LOG_INFO("This is the hash {} {} {}", p.get_hash(), m_board.get_hash(), m_board.fen());
 			auto [hit, entry] = m_table.probe(p.get_hash());
 
 			auto depth = entry.depth;
 			auto flags = entry.flags;
-			if (true)
-				LOG_INFO("Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", entry.score, entry.eval, entry.move, flags, depth);
+
+			if (hit)
+				LOG_INFO("Root info:  Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", entry.score, entry.eval, entry.move, flags, depth);
+
+			if (p.turn() == WHITE) {
+				MoveList<GenType::LEGAL, WHITE> ml(p);
+				for (auto& move : ml) {
+					p.play<WHITE>(move);
+					auto [hit, entry] = m_table.probe(p.get_hash());
+
+					auto depth = entry.depth;
+					auto flags = entry.flags;
+
+					if (hit)
+						LOG_INFO("Child info: Move: {} Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", move, entry.score, entry.eval, entry.move, flags, depth);
+
+					p.undo<WHITE>(move);
+				}
+			}
+			else {
+				MoveList<GenType::LEGAL, BLACK> ml(p);
+				for (auto& move : ml) {
+					p.play<BLACK>(move);
+					auto [hit, entry] = m_table.probe(p.get_hash());
+
+					auto depth = entry.depth;
+					auto flags = entry.flags;
+
+					if (hit)
+						LOG_INFO("Child info: Move: {} Score: {}, Eval: {}, Move: {}, Flags: {}, Depth: {}", move, entry.score, entry.eval, entry.move, flags, depth);
+
+					p.undo<BLACK>(move);
+				}
+			}
 		}
 	}
 } // namespace Engine

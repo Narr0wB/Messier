@@ -25,6 +25,7 @@ namespace Search {
         uint64_t search_end_time;
         uint64_t nodeslimit;
         uint32_t movestogo;
+        Move searchmove;
         int max_depth;
         int quiescence_depth;
         bool timeset;
@@ -77,7 +78,7 @@ namespace Search {
             SearchConfig m_cfg;
             SearchContext m_ctx;
             SearchInfo m_info;
-            SearchStack m_ss[MAX_PLY];
+            SearchStack m_ss[2 * MAX_PLY];
 
             std::vector<Move> m_pv;
 
