@@ -33,39 +33,38 @@ struct Transposition {
 };
 
 #define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_SCORE, NO_EVAL, Move::none(), 0 }
-#define DEFAULT_CAPACITY (1 << 25)
-#define MAX_CAPACITY (1 << 27)
+#define DEFAULT_CAPACITY (1 << 24)
+#define MAX_CAPACITY (1 << 25)
 
 class TTable {
     private:
-        std::vector<Transposition> m_map;
+        using Cluster = std::array<Transposition, 3>;
+
+        std::vector<Cluster> m_map;
         size_t m_capacity;
         size_t m_stored;
-    
+
     public:
         TTable(size_t capacity) :
             m_capacity(capacity),
             m_stored(0)
         {
-            if (capacity < MAX_CAPACITY) {
-                m_map.resize(capacity);
-            }
-            else {
-                m_map.resize(MAX_CAPACITY);
+            if (capacity > MAX_CAPACITY)
                 m_capacity = MAX_CAPACITY;
-            }
+
+            m_map.resize(m_capacity);
         }
 
         TTable() : m_capacity(DEFAULT_CAPACITY), m_stored(0) { m_map.resize(m_capacity); };
 
-        inline size_t stored() { return m_stored; }
-        inline size_t capacity() { return m_capacity; }
+        inline size_t stored() const { return m_stored; }
+        inline size_t capacity() const { return m_capacity; }
 
         void resize(size_t new_capacity);
         void clear();
 
         void push(uint64_t hash, const Transposition& t);
-        std::tuple<bool, Transposition> probe(uint64_t hash);
+        std::tuple<bool, Transposition> probe(uint64_t hash) const;
 };
 
 #endif

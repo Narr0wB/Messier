@@ -17,24 +17,46 @@ void TTable::clear()
 
 void TTable::push(uint64_t hash, const Transposition& t)
 {
-    Transposition& e = m_map[mul_hi64(hash, m_map.size())];
-    if (e.flags == FLAG_EMPTY) {
-        m_stored++;
-        e = t;
+    Cluster& c = m_map[mul_hi64(hash, m_map.size())];
+
+    int candidate = -1;
+    int age = INT32_MAX;
+    int depth = INT32_MAX;
+
+    for (int i = 0; i < 3; ++i) {
+        if (c[i].flags == FLAG_EMPTY) {
+            candidate = i;
+            m_stored++;
+            break;
+        }
+
+        if (c[i].hash == t.hash) {
+            if (t.generation > c[i].generation || t.depth >= c[i].depth) {
+                candidate = i;
+            } else {
+                candidate = -1; // Keep the deeper existing search
+            }
+            break;
+        }
+
+        if (c[i].generation < age || (c[i].generation == age && c[i].depth < depth)) {
+            candidate = i;
+            age = c[i].generation;
+            depth = c[i].depth;
+        }
     }
-    else if (e.hash == hash || 
-        t.generation != e.generation || 
-        t.depth >= (e.depth - 2)  ||
-        (t.flags == FLAG_EXACT && e.flags != FLAG_EXACT)) 
-    {
-        e = t;
-    }
+
+    if (candidate >= 0)
+        c[candidate] = t;
 }
 
-std::tuple<bool, Transposition> TTable::probe(uint64_t hash) 
+std::tuple<bool, Transposition> TTable::probe(uint64_t hash) const
 {
-    Transposition entry = m_map[mul_hi64(hash, m_map.size())];
-    if (entry.hash == hash && entry.flags != FLAG_EMPTY) return {true, entry};
+    const Cluster& c = m_map[mul_hi64(hash, m_map.size())];
+
+    for (int i = 0; i < 3; ++i)
+        if (c[i].hash == hash) 
+            return {true, c[i]};
 
     return {false, NO_HASH_ENTRY};
 }

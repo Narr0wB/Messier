@@ -377,19 +377,13 @@ namespace Search {
             }
         }
 
-        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, ss->static_eval, tt_move, m_info.generation);
 
-        const bool improving = ss->ply >= 2 && 
-                              !ss->in_check && 
-                              ss->static_eval > (ss - 2)->static_eval;
 
         if (ss->in_check) {
             ss->static_eval = NO_SCORE;
         }
         else {
-            ss->static_eval = (tt_hit && tt_eval != NO_SCORE) ? 
-                tt_eval : 
-                corrected_eval<C>(pos); 
+            ss->static_eval = (tt_hit && tt_eval != NO_SCORE) ? tt_eval : corrected_eval<C>(pos); 
 
 
             // Futility pruning: if at frontier nodes we realize that the static evaluation of our position, 
@@ -402,13 +396,13 @@ namespace Search {
             // }
 
             // Reverse futility pruning
-            int margin = rfp_base_margin * std::max(0, depth - improving);
-            if (!PVnode 
-                && depth <= rfp_depth 
-                && ss->static_eval - margin >= Bbeta)
-            {
-                return ss->static_eval;
-            }
+            // int margin = rfp_base_margin * std::max(0, depth - improving);
+            // if (!PVnode 
+            //     && depth <= rfp_depth 
+            //     && ss->static_eval - margin >= Bbeta)
+            // {
+            //     return ss->static_eval;
+            // }
 
             // Null Move Pruning
             if (!PVnode 
@@ -428,14 +422,20 @@ namespace Search {
             }
 
             // IIR by Ed Schroder
-            if (tt_hit 
-                && (tt_move == Move::none() || tt_depth + 4 < depth) 
-                && depth >= iir_depth 
-                && PVnode)
-            {
-                depth -= 1;
-            }
+            // if (tt_hit 
+            //     && (tt_move == Move::none() || tt_depth + 4 < depth) 
+            //     && depth >= iir_depth 
+            //     && PVnode)
+            // {
+            //     depth -= 1;
+            // }
         }
+
+        const bool improving = ss->ply >= 2 && 
+                              !ss->in_check && 
+                              ss->static_eval > (ss - 2)->static_eval;
+
+        Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, ss->static_eval, tt_move, m_info.generation);
 
         MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
         while ((m = picker.next()) != Move::none()) {
@@ -452,11 +452,11 @@ namespace Search {
             // if (skip_quiets && is_quiet)
             //     continue;
 
-            if (move_count > 2 
-                && !ss->in_check 
-                && depth <= 3 
-                && !pos.see<C>(m, -50 * depth)) 
-                continue;
+            // if (move_count > 2 
+            //     && !ss->in_check 
+            //     && depth <= 3 
+            //     && !pos.see<C>(m, -50 * depth)) 
+            //     continue;
 
             // Late Move Pruning
             if (depth <= 3 
@@ -510,13 +510,12 @@ namespace Search {
             if ((m_stop) ||
                 (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
                 (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit))) 
-            {
                 return 0;
-            }
 
             if (score > best_score) {
                 best_score = score;
                 node.score = score;
+                node.move  = m;
 
                 if (score >= MATE_SCORE - MAX_PLY)
                     node.score = score + ss->ply;
@@ -527,7 +526,6 @@ namespace Search {
                 if (best_score > Aalpha) {
                     Aalpha = best_score;
                     node.flags = FLAG_EXACT;
-                    node.move  = m;
 
                     if (is_quiet)
                         update_history<C>(m, 300 * depth - 250);
@@ -537,7 +535,6 @@ namespace Search {
                         if (is_quiet) {
                             m_ctx.killer_moves[ply][1] = m_ctx.killer_moves[ply][0];
                             m_ctx.killer_moves[ply][0] = m;
-
                         }
 
                         node.flags = FLAG_BETA;
@@ -650,7 +647,7 @@ namespace Search {
             uint64_t elapsed = end_current_search - start_time;
             uint64_t nps = elapsed > 0 ? (total_nodes * 1000ULL) / elapsed : 0;   
 
-            int pv_len = extract_pv();
+            int pv_len = extract_pv(m_root, m_tt, m_pv);
 
             if (!silent) {
                 std::cout 
@@ -685,30 +682,32 @@ namespace Search {
         }
     }
     
-    int Worker::extract_pv() {
-        int count = 0;
-        Position pos = m_root;
-        Color to_play = pos.turn();
+    int extract_pv(const Position& root, const TTable& table, std::array<Move, MAX_PLY>& out)
+    {
+        Position pos = root;
+        Color C = root.turn();
+        uint64_t visited[MAX_PLY] = {0};
+        size_t cnt = 0;
 
-        uint64_t visited[MAX_PLY];
-        while (count < MAX_PLY) {
-            // Cycle prevention
-            for (int i = 0; i < count; ++i) if (visited[i] == pos.get_hash()) return count;
-            visited[count] = pos.get_hash();
+        for (; cnt < MAX_PLY; ++cnt) {
+            uint64_t hash = pos.get_hash();
 
-            auto [tt_hit, tte] = m_tt.probe(pos.get_hash());
+            for (size_t i = 0; i < cnt; ++i) if (visited[i] == hash) return cnt;
+            visited[cnt] = hash;
+
+            auto [tt_hit, tte] = table.probe(hash);
 
             if (!tt_hit || tte.move == Move::none() || !pos.is_pseudo_legal(tte.move)) {
-                // LOG_INFO("Broken PV: {}, {}, {}, {}", tt_hit, tte.move, pos.is_pseudo_legal(tte.move), pos.fen());
+                LOG_INFO("Broken PV: {}, {}, {}, {}", tt_hit, tte.move, pos.is_pseudo_legal(tte.move), pos.turn());
                 break;
             }
 
-            m_pv[count++] = tte.move;
-            pos.play_dynamic(tte.move, to_play);
-            to_play = ~to_play;
+            out[cnt] = tte.move;
+            pos.play_dynamic(tte.move, C);
+            C = ~C;
         }
 
-        return count;
+        return cnt;
     }
 
     // Explicit template definitions

@@ -80,7 +80,7 @@ namespace Search {
             SearchInfo m_info;
             SearchStack m_ss[2 * MAX_PLY];
 
-            std::vector<Move> m_pv;
+            std::array<Move, MAX_PLY> m_pv;
 
             void idle_loop();
             void kill();
@@ -93,8 +93,6 @@ namespace Search {
             template <Color C, bool PVnode>
             int search(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
 
-            int extract_pv();
-
             template <Color C>
             void update_history(const Move& m, int bonus);
 
@@ -105,8 +103,7 @@ namespace Search {
                 m_cfg(),
                 m_ctx(),
                 m_info(),
-                m_tt(table),
-                m_pv(MAX_PLY)
+                m_tt(table)
             {}
             ~Worker() { kill(); }
 		
@@ -118,6 +115,8 @@ namespace Search {
             void stop();
     };
 
+    /* Utility functions */
+    int extract_pv(const Position& root, const TTable& table, std::array<Move, MAX_PLY>& out);
     void compute_lmx_parameters();
 
     inline int mate_in(int ply) { return MATE_SCORE - ply; };

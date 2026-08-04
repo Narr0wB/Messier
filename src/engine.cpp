@@ -2,6 +2,7 @@
 #include "engine.hpp"
 #include "log.hpp"
 #include "misc.hpp"
+#include "search/evaluate.hpp"
 
 namespace Engine {
 	Engine::Engine(int argc, char** argv, bool debug) : 
@@ -103,7 +104,6 @@ namespace Engine {
 			else if (tokens[1] == "fen") { Position::set(command.substr(command.find("fen") + 4, std::string::npos), m_board); }
 
 			if (command.find("moves") != std::string::npos) {
-                // LOG_INFO("ECHOING MOVES: {}", command);
 				int string_start = command.find("moves") + 6;
 
 				if (string_start > command.length()) return;
@@ -112,6 +112,8 @@ namespace Engine {
                 std::vector<std::string> moves = tokenize(moves_substr, ' ');
 
 				for (const std::string& move : moves) {
+					if (move == "O-O" || move == "O-O-O") continue;
+
 					Move m = Move::from_string(move);
 
 					auto match_lambda = [&m](Move _m) {
@@ -135,8 +137,6 @@ namespace Engine {
 						if (match != move_list.end()) m_board.play<BLACK>(*match);
 					}
 				}
-
-				// LOG_INFO("fen {}", m_board.fen());
 			}
 		}
 
@@ -289,7 +289,7 @@ namespace Engine {
 			m_worker.run(m_board, cfg);
 		}
 
-		// DEBUG COMMANDS
+		/* Debug command */
 		else if (tokens[0] == "probe") {
 			Position p;	
 			Position::set(command.substr(command.find(' ') + 1), p);
@@ -332,6 +332,13 @@ namespace Engine {
 					p.undo<BLACK>(move);
 				}
 			}
+		}
+
+		else if (tokens[0] == "eval") {
+			Position p;	
+			Position::set(command.substr(command.find(' ') + 1), p);
+
+			std::cout << "cp: " << evaluate(p) * (p.turn() == WHITE ? 1 : -1);
 		}
 	}
 } // namespace Engine
