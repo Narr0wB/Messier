@@ -18,7 +18,7 @@
 #define NO_EVAL 0 
 
 struct Transposition {
-    uint64_t hash;
+    uint32_t hash;
     int16_t score;
     int16_t eval;
     Move move;
@@ -29,7 +29,7 @@ struct Transposition {
     Transposition() = default;
 
     Transposition(uint8_t f, uint64_t h, int8_t d, int sc, int e, Move m, uint8_t gen) : 
-    flags(f), hash(h), depth(d), score(sc), move(m), eval(e), generation(gen) {};
+    flags(f), hash(h & 0xFFFFFFFFU), depth(d), score(sc), move(m), eval(e), generation(gen) {};
 };
 
 using Cluster = std::array<Transposition, 3>;

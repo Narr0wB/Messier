@@ -13,6 +13,7 @@ void TTable::clear()
 {
     m_map.clear();
     m_map.resize(m_capacity);
+    m_stored = 0;
 }
 
 void TTable::push(uint64_t hash, const Transposition& t)
@@ -30,12 +31,10 @@ void TTable::push(uint64_t hash, const Transposition& t)
             break;
         }
 
-        if (c[i].hash == t.hash) {
-            if (t.generation > c[i].generation || t.depth >= c[i].depth) {
-                candidate = i;
-            } else {
-                candidate = -1; // Keep the deeper existing search
-            }
+        if (c[i].hash == t.hash
+            && (t.generation > c[i].generation || t.depth >= c[i].depth)) 
+        {
+            candidate = i;
             break;
         }
 
@@ -55,7 +54,7 @@ std::tuple<bool, Transposition> TTable::probe(uint64_t hash) const
     const Cluster& c = m_map[mul_hi64(hash, m_map.size())];
 
     for (int i = 0; i < 3; ++i)
-        if (c[i].hash == hash) 
+        if (c[i].hash == (hash & 0xFFFFFFFFU)) 
             return {true, c[i]};
 
     return {false, NO_HASH_ENTRY};

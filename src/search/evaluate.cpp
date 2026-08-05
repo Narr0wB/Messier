@@ -167,7 +167,6 @@ int phase_weight[NPIECE_TYPES] = {
 
 int evaluate(const Position& position) 
 {
-    // int score = position.material(WHITE) - position.material(BLACK);
     int mg_score = 0;
     int eg_score = 0;
     int phase    = 0;
@@ -202,7 +201,6 @@ int evaluate(const Position& position)
         }
     }
 
-    // int phase = position.npm();
     phase = std::min(phase, 24);
     return (phase * mg_score + (24 - phase) * eg_score) / 24;
 }

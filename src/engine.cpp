@@ -37,7 +37,7 @@ namespace Engine {
 		if (time < 0) time = 5000;
 
 		// Consider the overhead lost during uci communication and subtract it to the avilable time
-		const int overhead = std::min(230, time / 2);
+		const int overhead = std::min(50, time / 2);
 		time -= overhead;
 
 		// If given how long should a move take then we use that for our search
