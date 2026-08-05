@@ -156,15 +156,26 @@ int* eg_tables[NPIECE_TYPES] = {
     eg_king_table
 };
 
+int phase_weight[NPIECE_TYPES] = {
+    0,
+    1,
+    1,
+    2,
+    4,
+    0
+};
+
 int evaluate(const Position& position) 
 {
     // int score = position.material(WHITE) - position.material(BLACK);
     int mg_score = 0;
     int eg_score = 0;
+    int phase    = 0;
 
     for (PieceType p = PAWN; p <= KING; ++p) {
         Bitboard white_piece_bb = position.bitboard_of(make_piece(WHITE, p));
         Bitboard black_piece_bb = position.bitboard_of(make_piece(BLACK, p));
+
 
         while (white_piece_bb) {   
             Square piece_sq = pop_lsb(&white_piece_bb);
@@ -174,6 +185,8 @@ int evaluate(const Position& position)
 
             mg_score += mg_tables[p][piece_sq ^ 56];
             eg_score += eg_tables[p][piece_sq ^ 56];
+
+            phase += phase_weight[p];
         }
 
         while (black_piece_bb) {
@@ -184,11 +197,13 @@ int evaluate(const Position& position)
 
             mg_score -= mg_tables[p][piece_sq];
             eg_score -= eg_tables[p][piece_sq];
+
+            phase += phase_weight[p];
         }
     }
 
-    int phase = position.npm();
-    if (phase > 24) phase = 24;
+    // int phase = position.npm();
+    phase = std::min(phase, 24);
     return (phase * mg_score + (24 - phase) * eg_score) / 24;
 }
 

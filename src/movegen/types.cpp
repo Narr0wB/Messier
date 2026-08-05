@@ -82,25 +82,6 @@ const Bitboard k2 = 0x3333333333333333;
 const Bitboard k4 = 0x0f0f0f0f0f0f0f0f;
 const Bitboard kf = 0x0101010101010101;
 
-//Returns number of set bits in the bitboard
-// int pop_count(Bitboard x) {
-// 	x = x - ((x >> 1) & k1);
-// 	x = (x & k2) + ((x >> 2) & k2);
-// 	x = (x + (x >> 4)) & k4;
-// 	x = (x * kf) >> 56;
-// 	return int(x);
-// }
-
-//Returns number of set bits in the bitboard. Faster than pop_count(x) when the bitboard has few set bits
-// int sparse_pop_count(Bitboard x) {
-// 	int count = 0;
-// 	while (x) {
-// 		count++;
-// 		x &= x - 1;
-// 	}
-// 	return count;
-// }
-
 constexpr int DEBRUIJN64[64] = {
 	0, 47,  1, 56, 48, 27,  2, 60,
    57, 49, 41, 37, 28, 16,  3, 61,
@@ -113,22 +94,6 @@ constexpr int DEBRUIJN64[64] = {
 };
 
 const Bitboard MAGIC = 0x03f79d71b4cb0a89;
-
-//Returns the index of the least significant bit in the bitboard, and removes the bit from the bitboard
-// Square pop_lsb(Bitboard* b) {
-// 	int lsb = bsf(*b);
-// 	*b &= *b - 1;
-// 	return Square(lsb);
-// }
-
-// Bitboard lsb(Bitboard b) {
-// 	return b & -b;
-// }
-
-//Returns the index of the least significant bit in the bitboard
-// Square bsf(Bitboard b) {
-// 	return Square(DEBRUIJN64[MAGIC * (b ^ (b - 1)) >> 58]);
-// }
 
 //Returns the representation of the move type in algebraic chess notation. (capture) is used for debugging
 const char* MOVE_TYPESTR[16] = {
