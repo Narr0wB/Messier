@@ -12,8 +12,8 @@
 #define DELTA_MARGIN 100
 
 namespace Search {
-    int lmr_reductions[MAX_DEPTH][64];
-    int lmp_margin[2][MAX_DEPTH];
+    int lmr_reductions[MAX_DEPTH + 1][64];
+    int lmp_margin[2][MAX_DEPTH + 1];
 
     const std::vector<std::string> BenchFENs = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", // Startpos
@@ -28,25 +28,19 @@ namespace Search {
         while (true) {
             std::unique_lock<std::mutex> lock(m_mutex);
 
-            // Stop waiting on any state that is not idle
-            m_cv.wait(lock, [&]{ return (m_state != WorkerState::IDLE); });
-            lock.unlock();
+            /* Stop waiting until we are put into state SEARCHING or we are killed*/
+            m_cv.wait(lock, [&]{ return (m_state == WorkerState::SEARCHING || m_kill); });
 
-            m_stop = false;
-            switch (m_state) {
-                case WorkerState::SEARCHING: {
-                    iterative_deepening(false); 
-                    break;
-                }
-                case WorkerState::DEAD: {
-                    return;
-                }
-            }
+            /* The mutex is locked by the current thread from here on out */
+            if (m_kill) break;
 
-            lock.lock();
+            iterative_deepening(false); 
+
             m_state = WorkerState::IDLE;
-            lock.unlock();
         }
+
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_state = WorkerState::DEAD;
     }
 
     void Worker::run(Position& root, const SearchConfig& cfg) {
@@ -57,6 +51,7 @@ namespace Search {
         m_cfg = cfg;
         m_root = root;
         m_state = WorkerState::SEARCHING;
+        m_stop = false;
         m_cv.notify_one();
     }
 
@@ -68,18 +63,13 @@ namespace Search {
     }
 
     void Worker::stop() {
-        if (m_state == WorkerState::SEARCHING) m_stop = true;
+        m_stop = true;
     }
 
     void Worker::kill() {
         stop();
-
-        std::unique_lock<std::mutex> lock(m_mutex);
-        m_state = WorkerState::DEAD;
-        lock.unlock();
-
+        m_kill = true;
         m_cv.notify_one();
-
         m_thread.join();
     }
 
@@ -88,17 +78,14 @@ namespace Search {
     }
 
     void Worker::bench(int depth) {
+        m_tt.clear();
+        std::cout << "Running benchmark... " << std::endl;
+
         uint64_t total_nodes = 0;
         uint64_t start_time = time_ms();
 
-        m_tt.clear();
-
-        std::cout << "Running benchmark... " << std::endl;
-
         for (const std::string& fen : BenchFENs) {
             Position::set(fen, m_root);
-
-            m_info = { 0 };
 
             m_cfg.max_depth = depth;
             m_cfg.timeset = false;
@@ -126,7 +113,7 @@ namespace Search {
     void compute_lmx_parameters() {
         lmr_reductions[0][0] = 0;
 
-        for (int depth = 1; depth < MAX_DEPTH; ++depth) {
+        for (int depth = 1; depth <= MAX_DEPTH; ++depth) {
             lmp_margin[0][depth] = 1.5 + 0.5 * std::pow(depth, 2.0);
             lmp_margin[1][depth] = 2.0 + 0.5 * std::pow(depth, 2.0);
 
@@ -142,21 +129,25 @@ namespace Search {
         m_ctx.history_moves[C][m.from()][m.to()] 
             += clamped_bonus - m_ctx.history_moves[C][m.from()][m.to()] * std::abs(clamped_bonus) / MAX_HISTORY;
     }
+
+    bool Worker::exit_search()
+    {
+        return (m_stop) 
+            || (m_cfg.timeset && (m_info.nodes % time_check_nodes == 0) && (time_ms() >= m_cfg.search_end_time))
+            || (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit));
+    }
    
 
 
     template <Color C, bool PVnode>
     int Worker::quiescence(Position& pos, SearchStack* ss, int Aalpha, int Bbeta) 
     {
+        if (ss->ply != ss->qply)
+            m_info.nodes++;
         m_info.qnodes++;
-        m_info.nodes++;
 
-        if ((m_stop) ||
-            (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
-            (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit))) 
-        {
+        if (exit_search()) 
             return 0;
-        }
         
         uint64_t hash = pos.get_hash();
 
@@ -211,14 +202,13 @@ namespace Search {
                 Aalpha = best_score;
             }
 
-            // Futility pruning, if at frontier nodes we realize that the static evaluation of our position, even after adding the value of a knight, is still under alpha then 
-            // prune this node by returning the static evaluation  
-            if (!PVnode && ss->static_eval + piece_value[KNIGHT] < Aalpha) {
-                node.flags = FLAG_ALPHA;
-                node.score = ss->static_eval + piece_value[KNIGHT];
-                m_tt.push(pos.get_hash(), node);
-                return ss->static_eval + piece_value[KNIGHT];   
-            }
+            // // Futility pruning
+            // if (!PVnode && ss->static_eval + piece_value[QUEEN] < Aalpha) {
+            //     node.flags = FLAG_ALPHA;
+            //     node.score = ss->static_eval + piece_value[QUEEN];
+            //     m_tt.push(pos.get_hash(), node);
+            //     return node.score;   
+            // }
         }
         else {
             ss->static_eval = node.eval = NO_SCORE;
@@ -228,25 +218,19 @@ namespace Search {
             return best_score != -INFTY ? best_score : corrected_eval<C>(pos);
 
 
-        MovePicker<C> picker(pos, m_ctx, ss->ply, -1, tt_move);
+        MovePicker<C> picker(pos, m_ctx, ss->ply, -1, ss->in_check, tt_move);
         while ((m = picker.next()) != Move::none()) {
             move_count++;
 
-            if (!ss->in_check) {
-                if (!m.is_capture() && !m.is_promotion()) 
+            if (!ss->in_check && !m.is_promotion()) {
+                if (!m.is_capture()) 
                     continue;
 
-                else if (!m.is_promotion() && ss->static_eval + piece_value[m.flags() == MoveFlags::EN_PASSANT ? PAWN : type_of(pos.at(m.to()))] + DELTA_MARGIN <= Aalpha)
+                if (!pos.see<C>(m, qsearch_see_threshold))
                     continue;
 
-                else if (m.is_promotion() && (m.promotion() != QUEEN))
-                    continue;
-
-                else if (!pos.see<C>(m, 0)) 
-                    continue;
-            }  
-            else {
-                if ((ss->ply - ss->qply) > 2 && m.is_quiet())
+                if ((ss->static_eval + piece_value[m.is_enpassant() ? PAWN : type_of(pos.at(m.to()))] + delta_margin <= Aalpha)
+                    && !pos.gives_check<C>(m))
                     continue;
             }
 
@@ -257,12 +241,8 @@ namespace Search {
 
             pos.undo<C>(m);
             
-            if ((m_stop) ||
-                (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
-                (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit))) 
-            {
+            if (exit_search()) 
                 return 0;
-            }
 
             if (score > best_score) {
                 best_score = score;
@@ -286,7 +266,7 @@ namespace Search {
             }
         }
 
-        if (move_count == 0) {
+        if (ss->in_check && move_count == 0) {
             // If we are in check and there are no more moves available (i.e. best_score is still -INFTY), then we are in a checkmate
             best_score = ss->in_check ? -MATE_SCORE + ss->ply : 0;
             node.score = ss->in_check ? -MATE_SCORE : 0;
@@ -306,13 +286,12 @@ namespace Search {
         m_info.nodes++;
 
         int ply = ss->ply;
-        int move_count = 0;
         int score = 0;
         int best_score = -INFTY;
-        bool skip_quiets = false;
-        ss->in_check = pos.in_check<C>();
         uint64_t hash = pos.get_hash();
         Move m = Move::none();
+
+        ss->in_check = pos.in_check<C>();
 
         // If depth is below zero, dip into quiescence search
         if (depth <= 0) {
@@ -325,12 +304,8 @@ namespace Search {
         assert(PVnode || (Aalpha == Bbeta - 1));
 
         // If out of time or hit any other constraints then exit the search
-        if ((m_stop) ||
-            (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
-            (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit))) 
-        {
+        if (exit_search()) 
             return 0;
-        }
 
         if (ply != 0) {
             int limit = pos.ply() - pos.halfmove;
@@ -349,7 +324,7 @@ namespace Search {
                 }
             }
 
-            if (pos.halfmove == 50) return 0;
+            if (pos.halfmove >= 100) return 0;
         }
 
         auto [tt_hit, tte] = m_tt.probe(hash);
@@ -385,16 +360,6 @@ namespace Search {
         else {
             ss->static_eval = (tt_hit && tt_eval != NO_SCORE) ? tt_eval : corrected_eval<C>(pos); 
 
-
-            // Futility pruning: if at frontier nodes we realize that the static evaluation of our position, 
-            // even after adding the value of a rook, is still under alpha then prune this node by returning the static evaluation  
-            // if (!PVnode 
-            //     && depth <= fp_depth 
-            //     && ss->static_eval + fp_margin < Aalpha)
-            // {
-            //     return ss->static_eval + fp_margin;   
-            // }
-
             // Reverse futility pruning
             // int margin = rfp_base_margin * std::max(0, depth - improving);
             // if (!PVnode 
@@ -409,7 +374,7 @@ namespace Search {
                 && depth >= nmp_depth 
                 && ss->static_eval >= Bbeta
                 && pos.npm(C) >= nmp_npawn_material
-                && (!tt_hit || tt_bound == FLAG_BETA || tt_score >= Bbeta)) 
+                && (!tt_hit || tt_bound == FLAG_BETA || tt_score >= Bbeta))
             {
                 int NMPReduction = 4 + depth / 5 + std::min(2, (ss->static_eval - Bbeta) / 191);
 
@@ -422,22 +387,33 @@ namespace Search {
             }
 
             // IIR by Ed Schroder
-            // if (tt_hit 
-            //     && (tt_move == Move::none() || tt_depth + 4 < depth) 
-            //     && depth >= iir_depth 
-            //     && PVnode)
-            // {
-            //     depth -= 1;
-            // }
+            if (PVnode
+                && tt_move == Move::none()
+                && depth >= iir_depth)
+            {
+                depth -= 1;
+            }
         }
 
+        // Futility pruning: if at frontier nodes we realize that the static evaluation of our position, 
+        // even after adding some margin, is still under alpha then prune this node by returning the static evaluation  
+        const bool futility_candidate = !PVnode 
+            && !ss->in_check
+            && depth <= fp_depth 
+            && ss->static_eval + fp_margin <= Aalpha;
+
         const bool improving = ss->ply >= 2 && 
-                              !ss->in_check && 
-                              ss->static_eval > (ss - 2)->static_eval;
+            !ss->in_check && 
+            ss->static_eval > (ss - 2)->static_eval;
 
         Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, ss->static_eval, tt_move, m_info.generation);
 
-        MovePicker<C> picker(pos, m_ctx, ply, depth, tt_move);
+        Move quiets_searched[MAX_MOVES];
+        int quiets_count = 0;
+        int move_count = 0;
+        int searched_count = 0;
+
+        MovePicker<C> picker(pos, m_ctx, ply, depth, ss->in_check, tt_move);
         while ((m = picker.next()) != Move::none()) {
             /* Explore a single branch of the main tree */
             if (m_cfg.searchmove != Move::none() 
@@ -449,8 +425,14 @@ namespace Search {
 
             const bool is_quiet = m.is_quiet();
 
-            // if (skip_quiets && is_quiet)
-            //     continue;
+            // const bool prunable_capture = 
+            //     !PVnode
+            //     && !ss->in_check
+            //     && depth <= 3
+            //     && move_count > 0
+            //     && m.is_capture()
+            //     && !m.is_promotion()
+            //     && !pos.see<C>(m, -50 * depth);
 
             // if (move_count > 2 
             //     && !ss->in_check 
@@ -459,57 +441,66 @@ namespace Search {
             //     continue;
 
             // Late Move Pruning
-            if (depth <= 3 
-                && move_count > lmp_margin[improving][depth]
-                && ss->ply > 0)
-                skip_quiets = true;
+            const bool lmp_prunable = !PVnode
+                && !ss->in_check
+                && is_quiet
+                && depth <= 3 
+                && move_count > lmp_margin[improving][depth];
+
+            // Futility pruning (TODO: add gives_check check)
+            const bool futility_prunable = futility_candidate
+                && is_quiet
+                && move_count > 1;
+
+            if ((futility_prunable || lmp_prunable) && !pos.gives_check<C>(m))
+                continue;
+
+            // Shallow SEE pruning
+            // if (prunable_capture)
+            //     continue;
+
+            searched_count++;
 
             pos.play<C>(m);
 
             // PVS
-            if (move_count < 2) {
+            if (searched_count < 2) {
                 score = -search<~C, PVnode>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
             }
             else {
                 // Late Move Reductions
+                const int new_depth = depth - 1;
+
                 if (depth >= 4 && move_count > 4 && is_quiet)
                 {
-                    int reduction = 0;
+                    int reduction = lmr_reductions[depth][std::min(move_count, 63)];
 
-                    if (is_quiet) {
-                        reduction = lmr_reductions[depth][std::min(move_count, 63)];
+                    reduction -= pos.in_check<~C>();
+                    reduction -= PVnode;
+                    reduction -= ss->in_check;
+                    reduction = std::clamp(reduction, 0, new_depth);
 
-                        reduction -= pos.in_check<~C>();
-                        reduction -= PVnode;
-                        reduction -= ss->in_check;
-                    }
-                    else {
-                        reduction = 3;
-
-                        reduction -= pos.in_check<~C>();
-                        reduction -= PVnode;
-                    }
-
-                    int reduced_depth = std::clamp(depth - reduction, 0, depth);
+                    int reduced_depth = std::max(0, new_depth - reduction);
 
                     score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, reduced_depth);
 
-                    if (score > Aalpha && reduction > 1) 
-                        score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+                    if (score > Aalpha && reduced_depth < new_depth) 
+                        score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, new_depth);
                 }
                 else {
-                    score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, depth - 1);
+                    score = -search<~C, false>(pos, ss + 1, -Aalpha - 1, -Aalpha, new_depth);
                 }
 
                 if (Aalpha < score && score < Bbeta)
-                    score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, depth - 1);
+                    score = -search<~C, true>(pos, ss + 1, -Bbeta, -Aalpha, new_depth);
             }
 
             pos.undo<C>(m);
 
-            if ((m_stop) ||
-                (m_cfg.timeset && (time_ms() >= m_cfg.search_end_time)) || 
-                (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit))) 
+            if (is_quiet)
+                quiets_searched[quiets_count++] = m;
+
+            if (exit_search()) 
                 return 0;
 
             if (score > best_score) {
@@ -527,14 +518,18 @@ namespace Search {
                     Aalpha = best_score;
                     node.flags = FLAG_EXACT;
 
-                    if (is_quiet)
-                        update_history<C>(m, 300 * depth - 250);
-
                     // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
                         if (is_quiet) {
                             m_ctx.killer_moves[ply][1] = m_ctx.killer_moves[ply][0];
                             m_ctx.killer_moves[ply][0] = m;
+
+                            const int bonus = std::min(MAX_HISTORY, 300 * depth - 250);
+
+                            update_history<C>(m, bonus);
+
+                            for (size_t i = 0; i < quiets_count - 1; ++i)
+                                update_history<C>(quiets_searched[i], -bonus);
                         }
 
                         node.flags = FLAG_BETA;
@@ -562,13 +557,13 @@ namespace Search {
 
     void Worker::iterative_deepening(bool silent = false) 
     {
-        int max_depth = m_cfg.max_depth;
+        int max_depth = m_cfg.max_depth <= MAX_DEPTH ? m_cfg.max_depth : MAX_DEPTH;
         int current_depth = 1;
         int last_score = NO_SCORE;
-        uint64_t total_nodes = 0;
-        uint64_t total_qnodes = 0;
         Color to_play = m_root.turn();
         Move best_move = Move::none();
+
+        m_info = {0};
 
         auto start_time = time_ms();
 
@@ -579,7 +574,7 @@ namespace Search {
             int alpha      = last_score != NO_SCORE ? std::max(-INFTY, last_score - aw_margin) : -INFTY;
             int beta       = last_score != NO_SCORE ? std::min(INFTY, last_score + aw_margin) : INFTY;
             int score      = 0;
-            m_info = {0};
+            m_info.aw_iterations = 0;
             m_info.generation = m_root.ply();
 
             // Wipe search stack
@@ -603,12 +598,8 @@ namespace Search {
                 else 
                     score = search<BLACK, true>(m_root, m_ss, alpha, beta, depth);
 
-                if ((m_stop) ||
-                    (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 
-                    (m_cfg.nodeset && m_info.nodes > m_cfg.nodeslimit)) 
-                {
+                if (exit_search()) 
                     break;
-                }
 
                 aw_margin *= 2;
 
@@ -631,21 +622,15 @@ namespace Search {
                 }
             }
 
-            if ((m_stop) ||
-                (m_cfg.timeset && time_ms() >= m_cfg.search_end_time) || 
-                (m_cfg.nodeset && m_info.nodes > m_cfg.nodeslimit)) 
-            {
+            if (exit_search()) 
                 break;
-            }
 
             last_score = score;
 
             auto end_current_search = time_ms();
 
-            total_nodes += m_info.nodes;
-            total_qnodes += m_info.qnodes;
             uint64_t elapsed = end_current_search - start_time;
-            uint64_t nps = elapsed > 0 ? (total_nodes * 1000ULL) / elapsed : 0;   
+            uint64_t nps = elapsed > 0 ? (m_info.nodes* 1000ULL) / elapsed : 0;   
 
             int pv_len = extract_pv(m_root, m_tt, m_pv);
 
@@ -653,8 +638,8 @@ namespace Search {
                 std::cout 
                     << "info depth " << current_depth 
                     << " score cp " << score * (to_play == WHITE ? 1 : -1) 
-                    << " nodes " << total_nodes 
-                    << " qnodes " << total_qnodes 
+                    << " nodes " << m_info.nodes 
+                    << " qnodes " << m_info.qnodes 
                     << " nps " << nps 
                     << " tthits " << m_info.tt_hits 
                     << " ttstored " << m_tt.stored() 
@@ -698,7 +683,7 @@ namespace Search {
             auto [tt_hit, tte] = table.probe(hash);
 
             if (!tt_hit || tte.move == Move::none() || !pos.is_pseudo_legal(tte.move)) {
-                LOG_INFO("Broken PV: {}, {}, {}, {}", tt_hit, tte.move, pos.is_pseudo_legal(tte.move), pos.turn());
+                // LOG_INFO("Broken PV: {}, {}, {}, {}", tt_hit, tte.move, pos.is_pseudo_legal(tte.move), pos.turn());
                 break;
             }
 

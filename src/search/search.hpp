@@ -65,10 +65,11 @@ namespace Search {
 
     class Worker {
         private:
-            std::thread m_thread;
             std::mutex m_mutex;
             std::condition_variable m_cv;
             std::atomic<bool> m_stop;
+            std::atomic<bool> m_kill;
+
             WorkerState m_state;
             TTable& m_tt;
 
@@ -82,8 +83,11 @@ namespace Search {
 
             std::array<Move, MAX_PLY> m_pv;
 
+            std::thread m_thread;
+
             void idle_loop();
             void kill();
+            bool exit_search();
 
             void iterative_deepening(bool silent);
 
@@ -99,11 +103,13 @@ namespace Search {
         public:
             Worker(TTable& table) : 
                 m_state(WorkerState::IDLE),
-                m_thread(&Worker::idle_loop, this),
+                m_stop(false),
+                m_kill(false),
                 m_cfg(),
                 m_ctx(),
                 m_info(),
-                m_tt(table)
+                m_tt(table),
+                m_thread(&Worker::idle_loop, this)
             {}
             ~Worker() { kill(); }
 		

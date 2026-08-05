@@ -147,7 +147,7 @@ namespace Engine {
 		else if (tokens[0] == "uci") {
 			std::cout << "id name " << "Messier v1.0" << std::endl;
 			std::cout << "id author Ilias \"narr0w\" El Fourati" << std::endl;
-			std::cout << "option name Hash type spin default 16 min 1 max 2048" << std::endl;
+			std::cout << "option name Hash type spin default " << int((DEFAULT_CAPACITY * sizeof(Cluster)) / (1024ULL * 1024ULL)) << " min 1 max 2048" << std::endl;
 			std::cout << "option name Threads type spin default 1 min 1 max 1" << std::endl;
 			std::cout << "uciok" << std::endl;
 		}
@@ -175,7 +175,7 @@ namespace Engine {
 
 				m_options.hash_table_size_mb = table_size;
 				m_table.clear();
-				m_table.resize((table_size * 1024 * 1024) / sizeof(Transposition));
+				m_table.resize((table_size * 1024 * 1024) / sizeof(Cluster));
 			}
 			
 			else if (tokens.at(2) == "Threads") {
@@ -266,7 +266,7 @@ namespace Engine {
 				}
 			}
 
-			if (depth == -1) {
+			if (depth == -1 || depth > MAX_DEPTH) {
 				depth = MAX_DEPTH;
 			}
 

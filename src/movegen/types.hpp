@@ -22,6 +22,7 @@ copies or substantial portions of the Software.
 #include <ostream>
 #include <iostream>
 #include <vector>
+#include <bit>
 
 const size_t NCOLORS = 2;
 enum Color : int {
@@ -124,14 +125,14 @@ extern const Bitboard k2;
 extern const Bitboard k4;
 extern const Bitboard kf;
 
-int pop_count(Bitboard x);
-int sparse_pop_count(Bitboard x);
-Square pop_lsb(Bitboard* b);
-Bitboard lsb(Bitboard b);
+inline Square bsf(Bitboard b) { return static_cast<Square>(std::__countr_zero(b)); }
+inline Bitboard lsb(Bitboard b) { return b & -b; }
+inline int pop_count(Bitboard x) { return std::__popcount(x); }
+inline int sparse_pop_count(Bitboard x) { return pop_count(x); }
+inline Square pop_lsb(Bitboard* b) { Square sq = bsf(*b); *b &= *b - 1; return sq; }
 
 // extern const int DEBRUIJN64[64];
 extern const Bitboard MAGIC;
-Square bsf(Bitboard b);
 
 constexpr Rank rank_of(Square s) { return Rank(s >> 3); }
 constexpr File file_of(Square s) { return File(s & 0b111); }
@@ -212,6 +213,7 @@ public:
 	inline bool is_capture()   const { return flags() & MoveFlags::CAPTURE; }
 	inline bool is_promotion() const { return flags() & MoveFlags::PROMOTIONS; }
 	inline bool is_quiet()     const { return !(flags() & (MoveFlags::CAPTURE | MoveFlags::PROMOTIONS)); }
+	inline bool is_enpassant() const { return flags() == MoveFlags::EN_PASSANT; }
 	inline PieceType promotion() const { 
 		if (!is_promotion())
 			return PAWN;

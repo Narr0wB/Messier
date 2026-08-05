@@ -32,13 +32,14 @@ struct Transposition {
     flags(f), hash(h), depth(d), score(sc), move(m), eval(e), generation(gen) {};
 };
 
+using Cluster = std::array<Transposition, 3>;
+
 #define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_SCORE, NO_EVAL, Move::none(), 0 }
-#define DEFAULT_CAPACITY (1 << 24)
-#define MAX_CAPACITY (1 << 25)
+#define DEFAULT_CAPACITY (1ULL << 20)
+#define MAX_CAPACITY (1ULL << 25)
 
 class TTable {
     private:
-        using Cluster = std::array<Transposition, 3>;
 
         std::vector<Cluster> m_map;
         size_t m_capacity;

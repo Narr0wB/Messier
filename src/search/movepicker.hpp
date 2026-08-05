@@ -6,6 +6,7 @@
 
 #include "movegen/move.hpp"
 #include "movegen/position.hpp"
+#include "search/parameters.hpp"
 #include "search/search.hpp"
 #include "log.hpp"
 
@@ -19,15 +20,11 @@ static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
     /* KING   */ {100, 200,   220,   230, 800,  900},
 };
 
-#define GOOD_CAPTURE_THRESHOLD 0 
-#define GOOD_QUIET_THRESHOLD   -1 
-
 enum Stage : int {
     MAIN_TT,
     CAPTURE_INIT,
     GOOD_CAPTURES,
     QUIET_INIT,
-
     GOOD_QUIETS,
     BAD_CAPTURES,
     BAD_QUIETS,
@@ -58,20 +55,18 @@ struct ExtMove : public Move {
 template <Color C>
 class MovePicker {
     public:
-        MovePicker(Position& pos, const Search::SearchContext& ctx, int ply, int depth, Move tt_move) :
+        MovePicker(Position& pos, const Search::SearchContext& ctx, int ply, int depth, bool in_check, Move tt_move) :
             m_pos(pos),
             m_ctx(ctx),
             m_ply(ply),
             m_depth(depth),
             m_ttmove(tt_move)
         {
-            if (pos.in_check<C>())
+            if (in_check)
                 m_stage = Stage::EVASION_TT;
             else
                 m_stage = (depth > 0) ? Stage::MAIN_TT : Stage::QUIESCENCE_TT;
         };
-
-        // MovePicker(const Position&, const Search::SearchContext&, int, Move);
 
         /* 
             More or less, in normal tree-search the state of the MovePicker behaves as follows:
@@ -101,9 +96,8 @@ class MovePicker {
                 case QUIESCENCE_TT:
                 case EVASION_TT: {
                     ++m_stage;
-                    if (m_pos.is_pseudo_legal(m_ttmove) && m_pos.is_legal<C>(m_ttmove)) {
+                    if (m_pos.is_pseudo_legal(m_ttmove) && m_pos.is_legal<C>(m_ttmove))
                         return m_ttmove;
-                    }
                     goto top;
                 }
                 
@@ -131,7 +125,7 @@ class MovePicker {
 
                 case GOOD_CAPTURES: {
                     Move m = select([&]() {
-                        if (m_pos.see<C>(*m_cur, GOOD_CAPTURE_THRESHOLD))
+                        if (m_pos.see<C>(*m_cur, good_capture_threshold))
                             return true;
                         
                         // Since re-searching the array of capures once again is expensive, we move the bad captures to the front
@@ -140,24 +134,26 @@ class MovePicker {
                         return false;
                     });
 
-                    if (m != Move::none()) return m;
+                    if (m != Move::none()) 
+                        return m;
                     
                     ++m_stage;
-                    // Intentional fallthrough to the next stage
+                    goto top;
                 }
 
                 case QUIET_INIT: {
+                    assert(m_cur == m_end_captures);
                     MoveList<GenType::QUIETS, C> list(m_pos);
                     
                     m_end_cur = m_end_generated = score(list);
 
                     std::sort(m_cur, m_end_cur, std::greater<ExtMove>());
                     ++m_stage;
-                    // Intentional fallthrough to the next stage
+                    goto top;
                 }
 
                 case GOOD_QUIETS: {
-                    Move m = select([&]() { return m_cur->score > GOOD_QUIET_THRESHOLD; });
+                    Move m = select([&]() { return m_cur->score > good_quiet_threshold; });
                     if (m != Move::none()) return m;
 
                     // Prepare the iterators to loop over bad captures 
@@ -165,7 +161,7 @@ class MovePicker {
                     m_end_cur = m_end_bad_captures;
 
                     ++m_stage;
-                    // Intentional fallthrough to the next stage
+                    goto top;
                 }
 
                 case BAD_CAPTURES: {
@@ -177,11 +173,11 @@ class MovePicker {
                     m_end_cur = m_end_generated;
 
                     ++m_stage;
-                    // Intentional fallthrough to the next stage
+                    goto top;
                 }
 
                 case BAD_QUIETS: 
-                    return select([&]() { return m_cur->score <= GOOD_QUIET_THRESHOLD; });
+                    return select([&]() { return m_cur->score <= good_quiet_threshold; });
 
                 case EVASION_INIT: {
                     MoveList<GenType::EVASIONS, C> list(m_pos);
@@ -224,6 +220,14 @@ class MovePicker {
 
         template <typename Pred>
         Move select(Pred predicate) {
+            // ExtMove *best = m_cur;
+            // for (ExtMove *it = m_cur; it < m_end_cur; ++it) {
+            //     if (it->score > best->score) {
+            //         best = it;
+            //     }
+            // }
+            // std::swap(*best, *m_cur);
+
             for (; m_cur < m_end_cur; ++m_cur) {
                 // TODO: reapply tt_move check
                 if (*m_cur != m_ttmove && predicate())
