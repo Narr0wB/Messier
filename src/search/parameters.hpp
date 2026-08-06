@@ -12,7 +12,11 @@ const int fp_margin = 500;
 
 /* Reverse futility pruning */
 const int rfp_base_margin = 65;
-const int rfp_depth       = 8;
+const int rfp_depth       = 3;
+
+/* Razoring */
+const int razoring_base  = 60;
+const int razoring_depth = 2;
 
 /* Null move pruning */
 const int nmp_depth          = 2;

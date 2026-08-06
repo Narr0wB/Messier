@@ -8,8 +8,6 @@
 
 #include <chrono>
 
-#define MAX_MOVE_SCORE 20000
-
 int evaluate(const Position& position);
 
 template <Color Us>

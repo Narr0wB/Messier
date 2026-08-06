@@ -60,6 +60,7 @@ namespace Search {
         m_ctx  = {0};
         m_cfg  = {0};
         m_info = {0};
+        m_generation = 0;
     }
 
     void Worker::stop() {
@@ -347,26 +348,24 @@ namespace Search {
             if (tt_bound == FLAG_ALPHA && tt_score <= Aalpha
                 || tt_bound == FLAG_BETA && tt_score >= Bbeta
                 || tt_bound == FLAG_EXACT) 
-            {
                 return tt_score;
-            }
         }
-
-
 
         if (ss->in_check) {
             ss->static_eval = NO_SCORE;
         }
         else {
-            ss->static_eval = (tt_hit && tt_eval != NO_SCORE) ? tt_eval : corrected_eval<C>(pos); 
+            ss->static_eval = (tt_eval != NO_SCORE) ? tt_eval : corrected_eval<C>(pos); 
 
-            // Reverse futility pruning
-            // int margin = rfp_base_margin * std::max(0, depth - improving);
-            // if (!PVnode 
-            //     && depth <= rfp_depth 
-            //     && ss->static_eval - margin >= Bbeta)
+            /* Razoring */
+            // int margin = razoring_base * std::max(0, depth);
+            // if (!PVnode
+            //     && depth <= razoring_depth
+            //     && ss->static_eval + margin < Aalpha)
             // {
-            //     return ss->static_eval;
+            //     (ss + 1)->qply = ply;
+            //     int qscore = quiescence<C, PVnode>(pos, ss + 1, Aalpha, Bbeta);
+            //     if (qscore <= Aalpha) return qscore;
             // }
 
             // Null Move Pruning
@@ -390,21 +389,19 @@ namespace Search {
             if (PVnode
                 && tt_move == Move::none()
                 && depth >= iir_depth)
-            {
                 depth -= 1;
-            }
         }
 
-        // Futility pruning: if at frontier nodes we realize that the static evaluation of our position, 
+        // Reverse Futility Pruning: if at frontier nodes we realize that the static evaluation of our position, 
         // even after adding some margin, is still under alpha then prune this node by returning the static evaluation  
         const bool futility_candidate = !PVnode 
             && !ss->in_check
             && depth <= fp_depth 
             && ss->static_eval + fp_margin <= Aalpha;
 
-        const bool improving = ss->ply >= 2 && 
-            !ss->in_check && 
-            ss->static_eval > (ss - 2)->static_eval;
+        const bool improving = ss->ply >= 2 
+            && !ss->in_check 
+            && ss->static_eval > (ss - 2)->static_eval;
 
         Transposition node(FLAG_ALPHA, hash, (int8_t)depth, NO_SCORE, ss->static_eval, tt_move, m_info.generation);
 
@@ -574,11 +571,12 @@ namespace Search {
             int alpha      = last_score != NO_SCORE ? std::max(-INFTY, last_score - aw_margin) : -INFTY;
             int beta       = last_score != NO_SCORE ? std::min(INFTY, last_score + aw_margin) : INFTY;
             int score      = 0;
+
             m_info.aw_iterations = 0;
-            m_info.generation = m_root.ply();
+            m_info.generation    = m_generation++;
 
             // Wipe search stack
-            for (int i = 0; i < MAX_PLY; ++i) {
+            for (int i = 0; i < 2 * MAX_PLY; ++i) {
                 (m_ss + i)->ply         = i;
                 (m_ss + i)->qply        = 0;
                 (m_ss + i)->static_eval = 0;

@@ -73,9 +73,9 @@ namespace Search {
             WorkerState m_state;
             TTable& m_tt;
 
-            // Position is reset after call to Worker::run()
             Position m_root;
 
+            uint32_t m_generation;
             SearchConfig m_cfg;
             SearchContext m_ctx;
             SearchInfo m_info;
@@ -87,24 +87,20 @@ namespace Search {
 
             void idle_loop();
             void kill();
-            bool exit_search();
 
             void iterative_deepening(bool silent);
+            bool exit_search();
 
-            template <Color C, bool PVnode>
-            int quiescence(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
-
-            template <Color C, bool PVnode>
-            int search(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
-
-            template <Color C>
-            void update_history(const Move& m, int bonus);
+            template <Color C, bool PVnode> int quiescence(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
+            template <Color C, bool PVnode> int search(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
+            template <Color C>              void update_history(const Move& m, int bonus);
 
         public:
             Worker(TTable& table) : 
                 m_state(WorkerState::IDLE),
                 m_stop(false),
                 m_kill(false),
+                m_generation(0),
                 m_cfg(),
                 m_ctx(),
                 m_info(),

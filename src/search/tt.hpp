@@ -13,8 +13,8 @@
 #define FLAG_BETA 3
 
 #define MATE_SCORE (INT16_MAX / 2)
-#define INFTY (MATE_SCORE + 10) 
-#define NO_SCORE (INFTY + 1)
+#define INFTY      (MATE_SCORE + 10) 
+#define NO_SCORE   (INFTY + 1)
 #define NO_EVAL 0 
 
 struct Transposition {
