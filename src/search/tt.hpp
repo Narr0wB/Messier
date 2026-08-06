@@ -32,6 +32,8 @@ struct Transposition {
     flags(f), hash(h & 0xFFFFFFFFU), depth(d), score(sc), move(m), eval(e), generation(gen) {};
 };
 
+#define GENERATION_MASK 0b111111
+
 using Cluster = std::array<Transposition, 3>;
 
 #define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_SCORE, NO_EVAL, Move::none(), 0 }

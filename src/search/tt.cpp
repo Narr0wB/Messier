@@ -21,8 +21,8 @@ void TTable::push(uint64_t hash, const Transposition& t)
     Cluster& c = m_map[mul_hi64(hash, m_map.size())];
 
     int candidate = -1;
-    int age = INT32_MAX;
-    int depth = INT32_MAX;
+    int age       = -1;
+    int depth     = INT32_MAX;
 
     for (int i = 0; i < 3; ++i) {
         if (c[i].flags == FLAG_EMPTY) {
@@ -31,17 +31,21 @@ void TTable::push(uint64_t hash, const Transposition& t)
             break;
         }
 
-        if (c[i].hash == t.hash
-            && (t.generation > c[i].generation || t.depth >= c[i].depth)) 
-        {
-            candidate = i;
-            break;
+        if (c[i].hash == t.hash) {
+            if (t.depth >= c[i].depth)
+                c[i] = t;
+            else
+                c[i].generation = t.generation;
+
+            return;
         }
 
-        if (c[i].generation < age || (c[i].generation == age && c[i].depth < depth)) {
+        const uint8_t entry_age = (t.generation + 64U - c[i].generation) & GENERATION_MASK;
+
+        if (entry_age > age || (entry_age == age && c[i].depth < depth)) {
             candidate = i;
-            age = c[i].generation;
-            depth = c[i].depth;
+            age       = entry_age;
+            depth     = c[i].depth;
         }
     }
 
