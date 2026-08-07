@@ -78,32 +78,23 @@ namespace Search {
         return m_state;
     }
 
-    void Worker::bench(int depth) {
+    void Worker::bench(const SearchConfig& cfg) {
         m_tt.clear();
-        std::cout << "Running benchmark... " << std::endl;
+        m_cfg = cfg;
 
         uint64_t total_nodes = 0;
         uint64_t start_time = time_ms();
 
         for (const std::string& fen : BenchFENs) {
             Position::set(fen, m_root);
-
-            m_cfg.max_depth = depth;
-            m_cfg.timeset = false;
-            m_cfg.nodeset = false;
-
             iterative_deepening(false);
-
             total_nodes += m_info.nodes;
         }
 
         uint64_t end_time = time_ms();
         uint64_t elapsed = end_time - start_time;
 
-        if (elapsed == 0) 
-            elapsed = 1;
-
-        uint64_t nps = (total_nodes * 1000) / elapsed;
+        uint64_t nps = (total_nodes * 1000) / (elapsed != 0 ? elapsed : 1);
 
         std::cout << "\n===========================\n";
         std::cout << "Total time (ms) : " << elapsed << "\n";
@@ -135,7 +126,7 @@ namespace Search {
     {
         return (m_stop) 
             || (m_cfg.timeset && (m_info.nodes % time_check_nodes == 0) && (time_ms() >= m_cfg.search_end_time))
-            || (m_cfg.nodeset && (m_info.nodes > m_cfg.nodeslimit));
+            || (m_cfg.nodeset && (m_info.nodes >= m_cfg.nodeslimit));
     }
    
 
@@ -561,6 +552,7 @@ namespace Search {
         Move best_move = Move::none();
 
         m_info = {0};
+        m_info.generation = m_generation++;
 
         auto start_time = time_ms();
 
@@ -573,7 +565,6 @@ namespace Search {
             int score      = 0;
 
             m_info.aw_iterations = 0;
-            m_info.generation    = m_generation++;
 
             // Wipe search stack
             for (int i = 0; i < 2 * MAX_PLY; ++i) {
@@ -658,6 +649,7 @@ namespace Search {
 
         if (!silent) {
             LOG_INFO("searchtime {}ms", (end_time - start_time));
+            LOG_INFO("nodes {}", m_info.nodes);
 
             std::cout << "bestmove ";
             std::cout << best_move;

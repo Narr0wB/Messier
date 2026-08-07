@@ -204,11 +204,18 @@ namespace Engine {
 		}
 
 		else if (tokens[0] == "bench") {
-			int depth = 15;
-			if (tokens.size() > 1)
-				depth = std::stoi(tokens[1]);
+			Search::SearchConfig cfg;
+			cfg.max_depth = MAX_DEPTH;
 
-			m_worker.bench(depth);
+			if (tokens.size() > 2 && tokens[1] == "nodes") {
+				cfg.nodeset = true;
+				cfg.nodeslimit = std::stoi(tokens[2]);
+			}
+			else if (tokens.size() > 1) {
+				cfg.max_depth = std::stoi(tokens[1]);
+			}
+
+			m_worker.bench(cfg);
 		}
 
 		else if (tokens[0] == "go") {

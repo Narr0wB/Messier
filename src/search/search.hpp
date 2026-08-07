@@ -112,7 +112,7 @@ namespace Search {
 
             WorkerState get_state();
             void run(Position& pos, const SearchConfig& cfg);
-            void bench(int depth);
+            void bench(const SearchConfig& cfg);
             void clear();
             void stop();
     };
