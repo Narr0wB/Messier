@@ -16,7 +16,6 @@
 #define MATE_SCORE (INT16_MAX / 2)
 #define INFTY      (MATE_SCORE + 10) 
 #define NO_SCORE   (INFTY + 1)
-#define NO_EVAL 0 
 
 #define GENERATION_MASK 0b111111
 
@@ -37,7 +36,7 @@ struct Transposition {
 
 using Cluster = std::array<Transposition, 3>;
 
-#define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_SCORE, NO_EVAL, Move::none(), 0 }
+#define NO_HASH_ENTRY { FLAG_EMPTY, 0, 0, NO_SCORE, NO_SCORE, Move::none(), 0 }
 #define DEFAULT_CAPACITY (1ULL << 20)
 #define MAX_CAPACITY (1ULL << 25)
 

@@ -172,9 +172,7 @@ namespace Search {
 
         if (!ss->in_check) {
             // Stand pat, check if current position is already better than Beta (or atleast better than alfa)
-            ss->static_eval = node.eval = (tt_hit && tt_eval != NO_SCORE) ? 
-                tt_eval :
-                corrected_eval<C>(pos); 
+            ss->static_eval = node.eval = (tt_eval != NO_SCORE) ?  tt_eval : corrected_eval<C>(pos); 
 
             best_score = ss->static_eval;
             node.score = best_score;
@@ -344,15 +342,15 @@ namespace Search {
             ss->static_eval = (tt_eval != NO_SCORE) ? tt_eval : corrected_eval<C>(pos); 
 
             /* Razoring */
-            // int margin = razoring_base * std::max(0, depth);
-            // if (!PVnode
-            //     && depth <= razoring_depth
-            //     && ss->static_eval + margin < Aalpha)
-            // {
-            //     (ss + 1)->qply = ply;
-            //     int qscore = quiescence<C, PVnode>(pos, ss + 1, Aalpha, Bbeta);
-            //     if (qscore <= Aalpha) return qscore;
-            // }
+            int margin = razoring_base * std::max(0, depth);
+            if (!PVnode
+                && depth <= razoring_depth
+                && ss->static_eval + margin < Aalpha)
+            {
+                (ss + 1)->qply = ply;
+                int qscore = quiescence<C, PVnode>(pos, ss + 1, Aalpha, Bbeta);
+                if (qscore <= Aalpha) return qscore;
+            }
 
             // Null Move Pruning
             if (!PVnode 
