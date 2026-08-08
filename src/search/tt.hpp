@@ -6,6 +6,7 @@
 
 #include "movegen/move.hpp"
 #include "log.hpp"
+#include "misc.hpp"
 
 #define FLAG_EMPTY 0
 #define FLAG_EXACT 1
@@ -16,6 +17,8 @@
 #define INFTY      (MATE_SCORE + 10) 
 #define NO_SCORE   (INFTY + 1)
 #define NO_EVAL 0 
+
+#define GENERATION_MASK 0b111111
 
 struct Transposition {
     uint32_t hash;
@@ -31,8 +34,6 @@ struct Transposition {
     Transposition(uint8_t f, uint64_t h, int8_t d, int sc, int e, Move m, uint8_t gen) : 
     flags(f), hash(h & 0xFFFFFFFFU), depth(d), score(sc), move(m), eval(e), generation(gen) {};
 };
-
-#define GENERATION_MASK 0b111111
 
 using Cluster = std::array<Transposition, 3>;
 
@@ -63,11 +64,66 @@ class TTable {
         inline size_t stored() const { return m_stored; }
         inline size_t capacity() const { return m_capacity; }
 
-        void resize(size_t new_capacity);
-        void clear();
+        inline void resize(size_t new_capacity) { m_map.resize(new_capacity); m_capacity = new_capacity; }
+        inline void clear();
 
-        void push(uint64_t hash, const Transposition& t);
-        std::tuple<bool, Transposition> probe(uint64_t hash) const;
+        inline void push(uint64_t hash, const Transposition& t);
+        inline std::tuple<bool, Transposition> probe(uint64_t hash) const;
 };
+
+inline void TTable::push(uint64_t hash, const Transposition& t)
+{
+    Cluster& c = m_map[mul_hi64(hash, m_map.size())];
+
+    int candidate = -1;
+    int age       = -1;
+    int depth     = INT32_MAX;
+
+    for (int i = 0; i < 3; ++i) {
+        if (c[i].flags == FLAG_EMPTY) {
+            candidate = i;
+            m_stored++;
+            break;
+        }
+
+        if (c[i].hash == t.hash) {
+            if (t.depth >= c[i].depth)
+                c[i] = t;
+            else
+                c[i].generation = t.generation;
+
+            return;
+        }
+
+        const uint8_t entry_age = (t.generation + 64U - c[i].generation) & GENERATION_MASK;
+
+        if (entry_age > age || (entry_age == age && c[i].depth < depth)) {
+            candidate = i;
+            age       = entry_age;
+            depth     = c[i].depth;
+        }
+    }
+
+    if (candidate >= 0)
+        c[candidate] = t;
+}
+
+inline std::tuple<bool, Transposition> TTable::probe(uint64_t hash) const
+{
+    const Cluster& c = m_map[mul_hi64(hash, m_map.size())];
+
+    for (int i = 0; i < 3; ++i)
+        if (c[i].hash == (hash & 0xFFFFFFFFU))
+            return {true, c[i]};
+
+    return {false, NO_HASH_ENTRY};
+}
+
+inline void TTable::clear()
+{
+    m_map.clear();
+    m_map.resize(m_capacity);
+    m_stored = 0;
+}
 
 #endif

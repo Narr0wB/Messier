@@ -58,9 +58,9 @@ namespace Search {
     void Worker::clear()
     {
         m_ctx  = {0};
-        m_cfg  = {0};
         m_info = {0};
         m_generation = 0;
+        m_tt.clear();
     }
 
     void Worker::stop() {
@@ -79,16 +79,18 @@ namespace Search {
     }
 
     void Worker::bench(const SearchConfig& cfg) {
-        m_tt.clear();
         m_cfg = cfg;
 
         uint64_t total_nodes = 0;
+        uint64_t total_qnodes = 0;
         uint64_t start_time = time_ms();
 
         for (const std::string& fen : BenchFENs) {
             Position::set(fen, m_root);
+            clear();
             iterative_deepening(false);
             total_nodes += m_info.nodes;
+            total_qnodes += m_info.qnodes;
         }
 
         uint64_t end_time = time_ms();
@@ -99,6 +101,7 @@ namespace Search {
         std::cout << "\n===========================\n";
         std::cout << "Total time (ms) : " << elapsed << "\n";
         std::cout << "Nodes searched  : " << total_nodes << "\n";
+        std::cout << "Of which qnodes : " << total_qnodes << "\n";
         std::cout << "Nodes/second    : " << nps << "\n";
     }
 
@@ -112,14 +115,6 @@ namespace Search {
             for (int move_count = 1; move_count < 64; ++move_count)
                 lmr_reductions[depth][move_count] = static_cast<int>(0.7844 + std::log(depth) * std::log(move_count) / 2.4696);
         }
-    }
-
-    template <Color C>
-    void Worker::update_history(const Move& m, int bonus)
-    {
-        int clamped_bonus = std::clamp(bonus, -MAX_HISTORY, MAX_HISTORY);
-        m_ctx.history_moves[C][m.from()][m.to()] 
-            += clamped_bonus - m_ctx.history_moves[C][m.from()][m.to()] * std::abs(clamped_bonus) / MAX_HISTORY;
     }
 
     bool Worker::exit_search()
@@ -509,15 +504,15 @@ namespace Search {
                     // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
                         if (is_quiet) {
-                            m_ctx.killer_moves[ply][1] = m_ctx.killer_moves[ply][0];
-                            m_ctx.killer_moves[ply][0] = m;
+                            m_ctx.killer.moves[ply][1] = m_ctx.killer.moves[ply][0];
+                            m_ctx.killer.moves[ply][0] = m;
 
                             const int bonus = std::min(MAX_HISTORY, 300 * depth - 250);
 
-                            update_history<C>(m, bonus);
+                            m_ctx.quiet.update_history<C>(m, bonus);
 
                             for (size_t i = 0; i < quiets_count - 1; ++i)
-                                update_history<C>(quiets_searched[i], -bonus);
+                                m_ctx.quiet.update_history<C>(quiets_searched[i], -bonus);
                         }
 
                         node.flags = FLAG_BETA;
@@ -557,7 +552,7 @@ namespace Search {
         auto start_time = time_ms();
 
         for (; current_depth <= max_depth; ++current_depth) {
-            int root_depth = m_cfg.max_depth = current_depth;
+            int root_depth = current_depth;
             int depth      = root_depth;
             int aw_margin  = 50;
             int alpha      = last_score != NO_SCORE ? std::max(-INFTY, last_score - aw_margin) : -INFTY;
@@ -649,7 +644,6 @@ namespace Search {
 
         if (!silent) {
             LOG_INFO("searchtime {}ms", (end_time - start_time));
-            LOG_INFO("nodes {}", m_info.nodes);
 
             std::cout << "bestmove ";
             std::cout << best_move;

@@ -6,6 +6,7 @@
 #include "movegen/types.hpp"
 #include "movegen/move.hpp"
 #include "search/tt.hpp"
+#include "search/history.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -13,11 +14,6 @@
 #include <condition_variable>
 #include <thread>
 #include <atomic>
-
-#define MAX_DEPTH 25
-#define MAX_PLY   30 
-#define MAX_TABLE MAX_DEPTH + 1
-#define MAX_HISTORY 8000
 
 namespace Search {
     struct SearchConfig {
@@ -52,11 +48,8 @@ namespace Search {
     };
 
     struct SearchContext {
-        Move pv[MAX_TABLE];
-        Move pv_table[MAX_TABLE][MAX_TABLE];
-        int  pv_table_len[MAX_TABLE];
-        Move killer_moves[MAX_TABLE][2];
-        int  history_moves[2][64][64];
+        QuietHistory quiet;
+        KillerHistory killer;
     };
 
     enum class WorkerState {
@@ -93,7 +86,6 @@ namespace Search {
 
             template <Color C, bool PVnode> int quiescence(Position& pos, SearchStack *ss, int Aalpha, int Bbeta);
             template <Color C, bool PVnode> int search(Position& pos, SearchStack *ss, int Aalpha, int Bbeta, int depth);
-            template <Color C>              void update_history(const Move& m, int bonus);
 
         public:
             Worker(TTable& table) : 

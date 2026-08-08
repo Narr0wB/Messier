@@ -177,12 +177,12 @@ enum MoveFlags : int {
 	PC_KNIGHT = 0b1100, PC_BISHOP = 0b1101, PC_ROOK = 0b1110, PC_QUEEN = 0b1111,
 };
 
-enum GenType : int {
+enum class GenType : int {
     QUIETS,
     CAPTURES,
 	EVASIONS,
+    QUIESCENCE,
 	LEGAL,
-    QUIESCENCE 
 };
 
 class Move {

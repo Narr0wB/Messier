@@ -6,7 +6,6 @@ src = files(
 
     'search/evaluate.cpp',
     'search/search.cpp',
-    'search/movepicker.cpp',
     'search/tt.cpp',
 
     'engine.cpp',

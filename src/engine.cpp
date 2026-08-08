@@ -127,12 +127,12 @@ namespace Engine {
 					};
 
 					if (m_board.turn() == Color::WHITE) {
-						MoveList<LEGAL, WHITE> move_list(m_board);
+						MoveList<GenType::LEGAL, WHITE> move_list(m_board);
 						Move *match = std::find_if(move_list.begin(), move_list.end(), match_lambda);
 						if (match != move_list.end()) m_board.play<WHITE>(*match);
 					}
 					else if (m_board.turn() == Color::BLACK) {
-						MoveList<LEGAL, BLACK> move_list(m_board);
+						MoveList<GenType::LEGAL, BLACK> move_list(m_board);
 						Move *match = std::find_if(move_list.begin(), move_list.end(), match_lambda);
 						if (match != move_list.end()) m_board.play<BLACK>(*match);
 					}
@@ -204,7 +204,7 @@ namespace Engine {
 		}
 
 		else if (tokens[0] == "bench") {
-			Search::SearchConfig cfg;
+			Search::SearchConfig cfg = {0};
 			cfg.max_depth = MAX_DEPTH;
 
 			if (tokens.size() > 2 && tokens[1] == "nodes") {
