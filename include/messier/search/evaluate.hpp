@@ -2,9 +2,9 @@
 #ifndef EVALUATE_H
 #define EVALUATE_H
 
-#include "../movegen/position.hpp" 
-#include "../movegen/types.hpp" 
-#include "../search/search.hpp" 
+#include <messier/movegen/position.hpp>
+#include <messier/movegen/types.hpp>
+#include <messier/search/search.hpp>
 
 #include <chrono>
 

@@ -1,8 +1,8 @@
 
-#include "engine.hpp"
-#include "log.hpp"
-#include "misc.hpp"
-#include "search/evaluate.hpp"
+#include <messier/engine.hpp>
+#include <messier/log.hpp>
+#include <messier/misc.hpp>
+#include <messier/search/evaluate.hpp>
 
 namespace Engine {
 	Engine::Engine(int argc, char** argv, bool debug) : 

@@ -1,4 +1,4 @@
-#include "movegen/types.hpp"
+#include <messier/movegen/types.hpp>
 #include <iostream>
 
 //Lookup tables of square names in algebraic chess notation

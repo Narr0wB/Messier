@@ -2,10 +2,10 @@
 #ifndef HISTORY_HPP
 #define HISTORY_HPP
 
-#include "movegen/move.hpp"
-#include "search/parameters.hpp"
+#include <messier/movegen/move.hpp>
+#include <messier/search/parameters.hpp>
 
-#define MAX_TABLE MAX_DEPTH + 1
+#define MAX_TABLE (MAX_PLY + 1)
 #define MAX_HISTORY 8000
 
 struct QuietHistory {

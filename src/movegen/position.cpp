@@ -1,6 +1,6 @@
-#include "movegen/position.hpp" 
-#include "movegen/tables.hpp" 
-#include "misc.hpp"
+#include <messier/movegen/position.hpp>
+#include <messier/movegen/tables.hpp>
+#include <messier/misc.hpp>
 #include <sstream>
 
 //Zobrist keys for each piece and each square

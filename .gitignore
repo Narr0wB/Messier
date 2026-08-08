@@ -2,3 +2,8 @@ bin/
 .vscode/
 build/
 benchmarks.txt
+
+.venv/
+__pycache__/
+*.py[cod]
+bench/results/

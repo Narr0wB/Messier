@@ -3,12 +3,15 @@
 #define MOVEPICKER_HPP
 
 #include <cassert>
+#include <algorithm>
+#include <functional>
+#include <utility>
 
-#include "movegen/move.hpp"
-#include "movegen/position.hpp"
-#include "search/parameters.hpp"
-#include "search/search.hpp"
-#include "log.hpp"
+#include <messier/movegen/move.hpp>
+#include <messier/movegen/position.hpp>
+#include <messier/search/parameters.hpp>
+#include <messier/search/search.hpp>
+#include <messier/log.hpp>
 
 static const int mvv_lva_lookup[NPIECE_TYPES][NPIECE_TYPES] = {
     /*           PAWN  KNIGHT BISHOP ROOK QUEEN KING */
@@ -62,12 +65,18 @@ public:
         m_ctx(ctx),
         m_ply(ply),
         m_depth(depth),
-        m_ttmove(tt_move)
+        m_ttmove(tt_move),
+        m_end_good_quiets(nullptr)
     {
-        if (in_check)
+        if (in_check) {
             m_stage = Stage::EVASION_TT;
-        else
-            m_stage = (depth > 0) ? Stage::MAIN_TT : Stage::QUIESCENCE_TT;
+        }
+        else if (depth > 0) {
+            m_stage = Stage::MAIN_TT;
+        }
+        else {
+            m_stage = tt_move.is_quiet() ? Stage::QUIESCENCE_INIT : Stage::QUIESCENCE_TT;
+        }
     };
 
     /* 
@@ -98,7 +107,10 @@ public:
             case Stage::QUIESCENCE_TT:
             case Stage::EVASION_TT: {
                 ++m_stage;
-                if (m_pos.is_pseudo_legal(m_ttmove) && m_pos.is_legal<C>(m_ttmove)) return m_ttmove;
+                if (m_ttmove != Move::none() 
+                    && m_pos.is_pseudo_legal(m_ttmove) 
+                    && m_pos.is_legal<C>(m_ttmove)) 
+                return m_ttmove;
                 goto top;
             }
                 
@@ -108,7 +120,6 @@ public:
                 m_cur = m_end_bad_captures = m_moves;
                 m_end_cur = m_end_captures = m_end_generated = score(list);
 
-                // std::sort(m_cur, m_end_cur, std::greater<ExtMove>());
                 m_stage_counter = 0;
                 ++m_stage;
                 goto top;
@@ -120,7 +131,6 @@ public:
                 m_cur = m_end_bad_captures = m_moves;
                 m_end_cur = m_end_captures = m_end_generated = score(list);
 
-                // std::sort(m_cur, m_end_cur, std::greater<ExtMove>());
                 m_stage_counter = 0;
                 ++m_stage;
                 goto top;
@@ -157,8 +167,11 @@ public:
             }
 
             case Stage::GOOD_QUIETS: {
-                Move m = select([&]() { return m_cur->score > good_quiet_threshold; });
-                if (m != Move::none()) return m;
+                Move m = select<true>([&]() { return m_cur->score > good_quiet_threshold; });
+                if (m != Move::none()) 
+                    return m;
+
+                m_end_good_quiets = m_cur;
 
                 // Prepare the iterators to loop over bad captures 
                 m_cur = m_moves;
@@ -174,7 +187,7 @@ public:
                 if (m != Move::none()) return m;
 
                 // Prepare the iterators to loop over all quiets again 
-                m_cur = m_end_captures;
+                m_cur = m_end_good_quiets;
                 m_end_cur = m_end_generated;
 
                 m_stage_counter = 0;
@@ -183,7 +196,7 @@ public:
             }
 
             case Stage::BAD_QUIETS:  {
-                return select([&]() { return m_cur->score <= good_quiet_threshold; });
+                return select([&]() { return true; });
             }
 
             case Stage::EVASION_INIT: {
@@ -219,17 +232,17 @@ private:
     int                          m_depth;
     Move                         m_ttmove;
     ExtMove                      m_moves[MAX_MOVES];
-    ExtMove*                     m_cur, *m_end_cur, *m_end_bad_captures, *m_end_captures, *m_end_generated;
+    ExtMove*                     m_cur, *m_end_cur, *m_end_bad_captures, *m_end_captures, *m_end_good_quiets, *m_end_generated;
     Stage                        m_stage;
     int                          m_stage_counter;
 
     inline ExtMove* begin() { return m_cur; }
     inline ExtMove* end()   { return m_end_cur; }
 
-    template <typename Pred>
+    template <bool stop_on_rejection = false, typename Pred>
     Move select(Pred predicate) {
         if (m_stage_counter == moves_before_sorting)
-            std::stable_sort(m_cur, m_end_cur, std::greater<ExtMove>());
+            std::sort(m_cur, m_end_cur, std::greater<ExtMove>());
 
         for (; m_cur < m_end_cur; ++m_cur) {
             if (m_stage_counter < moves_before_sorting) {
@@ -242,10 +255,16 @@ private:
                 std::swap(*best, *m_cur);
             }
 
-            if (*m_cur != m_ttmove && predicate()) {
+            if (*m_cur == m_ttmove)
+                continue;
+
+            if (predicate()) {
                 m_stage_counter++;
                 return *m_cur++;
             }
+            
+            if constexpr (stop_on_rejection)
+                return Move::none();
         }
             
         return Move::none();
@@ -311,7 +330,7 @@ private:
             }
 
             if (m.is_promotion())
-                m.score += promotion_base[type] + piece_value[m.promotion()] - piece_value[PAWN];
+                m.score += promotion_base[static_cast<int>(type)] + piece_value[m.promotion()] - piece_value[PAWN];
         }
 
         return it;

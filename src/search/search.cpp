@@ -2,12 +2,12 @@
 #include <atomic>
 #include <algorithm>
 
-#include "search/search.hpp" 
-#include "search/evaluate.hpp"
-#include "search/movepicker.hpp"
-#include "search/parameters.hpp"
-#include "misc.hpp"
-#include "log.hpp"
+#include <messier/search/search.hpp>
+#include <messier/search/evaluate.hpp>
+#include <messier/search/movepicker.hpp>
+#include <messier/search/parameters.hpp>
+#include <messier/misc.hpp>
+#include <messier/log.hpp>
 
 #define DELTA_MARGIN 100
 
@@ -504,8 +504,10 @@ namespace Search {
                     // Fail High Node, i.e. we have found a move that is better than what our opponent is guaranteed to take
                     if (best_score >= Bbeta) {
                         if (is_quiet) {
-                            m_ctx.killer.moves[ply][1] = m_ctx.killer.moves[ply][0];
-                            m_ctx.killer.moves[ply][0] = m;
+                            if (m != m_ctx.killer.moves[ply][0]) {
+                                m_ctx.killer.moves[ply][1] = m_ctx.killer.moves[ply][0];
+                                m_ctx.killer.moves[ply][0] = m;
+                            }
 
                             const int bonus = std::min(MAX_HISTORY, 300 * depth - 250);
 

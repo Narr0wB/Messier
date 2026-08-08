@@ -2,11 +2,11 @@
 #ifndef SEARCH_H 
 #define SEARCH_H
 
-#include "movegen/position.hpp"
-#include "movegen/types.hpp"
-#include "movegen/move.hpp"
-#include "search/tt.hpp"
-#include "search/history.hpp"
+#include <messier/movegen/position.hpp>
+#include <messier/movegen/types.hpp>
+#include <messier/movegen/move.hpp>
+#include <messier/search/tt.hpp>
+#include <messier/search/history.hpp>
 
 #include <cmath>
 #include <iostream>

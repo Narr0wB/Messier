@@ -1,5 +1,5 @@
-#include "movegen/tables.hpp" 
-#include "movegen/types.hpp" 
+#include <messier/movegen/tables.hpp>
+#include <messier/movegen/types.hpp>
 #include <iostream>
 #include <cstring>
 

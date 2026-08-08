@@ -2,8 +2,8 @@
 #ifndef MOVE_HPP
 #define MOVE_HPP
 
-#include "movegen/types.hpp" 
-#include "movegen/position.hpp" 
+#include <messier/movegen/types.hpp>
+#include <messier/movegen/position.hpp>
 
 #define MAX_MOVES 218
 

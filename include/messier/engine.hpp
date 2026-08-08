@@ -2,8 +2,8 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
-#include "./movegen/position.hpp"
-#include "./search/search.hpp"
+#include <messier/movegen/position.hpp>
+#include <messier/search/search.hpp>
 
 #define START_POSITION "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR/ w KQkq - 0 1"
 #define DEBUG_POSITION "rnb2b2/2p1k1p1/1p1q4/3p4/P7/8/P4PPP/RNB1KBNR w KQ - 0 9"

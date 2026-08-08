@@ -4,9 +4,9 @@
 
 #include <tuple>
 
-#include "movegen/move.hpp"
-#include "log.hpp"
-#include "misc.hpp"
+#include <messier/movegen/move.hpp>
+#include <messier/log.hpp>
+#include <messier/misc.hpp>
 
 #define FLAG_EMPTY 0
 #define FLAG_EXACT 1

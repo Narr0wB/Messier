@@ -21,9 +21,9 @@ copies or substantial portions of the Software.
 #include <string>
 #include <algorithm>
 
-#include "movegen/tables.hpp" 
-#include "movegen/types.hpp" 
-#include "log.hpp"
+#include <messier/movegen/tables.hpp>
+#include <messier/movegen/types.hpp>
+#include <messier/log.hpp>
 
 #define LEONID_POSITION "q2k2q1/2nqn2b/1n1P1n1b/2rnr2Q/1NQ1QN1Q/3Q3B/2RQR2B/Q2K2Q1 w - -"
 #define HISTORY_LEN 1024
